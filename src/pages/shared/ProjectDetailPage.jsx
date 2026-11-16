@@ -6,13 +6,14 @@ import MemberList from '../../components/MemberList';
 import ResourceLinks from '../../components/ResourceLinks';
 import RatingSummary from '../../components/RatingSummary';
 import EvaluationCounter from '../../components/EvaluationCounter';
-import { Loading, ErrorState, EmptyState } from '../../components/Feedback';
+import { ErrorState, EmptyState } from '../../components/Feedback';
+import { ProjectDetailsSkeleton } from '../../components/skeletons/PageSkeletons';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
 import { useAsync } from '../../hooks/useAsync';
 import { getProjectById } from '../../services/projectService';
 import { getAggregates, getEligibility, getEvaluationsForGroup } from '../../services/evaluationService';
-import { isStudent, isFaculty, isGuest, basePathFor } from '../../utils/roles';
+import { isStudent, isFaculty, isGuest, isAdmin, basePathFor } from '../../utils/roles';
 import { formatDate, formatScore } from '../../utils/ratings';
 import { getProjectLogoUrl } from '../../utils/projectLogo';
 
@@ -37,7 +38,6 @@ function EvaluateBox({ eligibility, status, projectId, isStudent }) {
   );
 }
 
-// Faculty-only view of evaluations received (includes comments; never shown to students).
 function ReceivedEvaluations({ evaluations }) {
   const { ratingsShown, ratingsHiddenReason } = useSettings();
   return (
@@ -49,12 +49,12 @@ function ReceivedEvaluations({ evaluations }) {
           <table className="w-full min-w-[560px] text-left text-sm">
             <thead><tr className="border-b border-line text-xs text-muted"><th className="py-2 pr-3">Evaluator</th><th className="pr-3">Overall</th><th className="pr-3">Comments</th><th>Date</th></tr></thead>
             <tbody>
-              {evaluations.map((e) => (
-                <tr key={e.id} className="border-b border-line last:border-0 align-top">
-                  <td className="py-2 pr-3"><span className="font-semibold">{e.evaluatorName}</span><span className="block text-xs text-muted">{e.evaluatorGroup}</span></td>
-                  <td className="pr-3 font-bold text-star">{ratingsShown ? formatScore(e.overallScore) : 'Hidden'}</td>
-                  <td className="pr-3 text-muted">{e.comments || '–'}</td>
-                  <td className="whitespace-nowrap text-muted">{formatDate(e.submittedAt)}</td>
+              {evaluations.map((evaluation) => (
+                <tr key={evaluation.id} className="border-b border-line last:border-0 align-top">
+                  <td className="py-2 pr-3"><span className="font-semibold">{evaluation.evaluatorName}</span><span className="block text-xs text-muted">{evaluation.evaluatorGroup}</span></td>
+                  <td className="pr-3 font-bold text-star">{ratingsShown ? formatScore(evaluation.overallScore) : 'Hidden'}</td>
+                  <td className="pr-3 text-muted">{evaluation.comments || '–'}</td>
+                  <td className="whitespace-nowrap text-muted">{formatDate(evaluation.submittedAt)}</td>
                 </tr>
               ))}
             </tbody>
@@ -72,6 +72,7 @@ export default function ProjectDetailPage() {
   const [logoPreviewUrl, setLogoPreviewUrl] = useState('');
   const student = isStudent(user);
   const faculty = isFaculty(user);
+  const admin = isAdmin(user);
   const guest = isGuest(user);
   const base = basePathFor(user);
 
@@ -81,7 +82,7 @@ export default function ProjectDetailPage() {
     const [aggregates, eligibility, received] = await Promise.all([
       getAggregates(user),
       !guest ? getEligibility(user.id, project.groupId) : null,
-      faculty ? getEvaluationsForGroup(project.groupId, user) : [],
+      admin ? getEvaluationsForGroup(project.groupId, user) : null,
     ]);
     return {
       project,
@@ -90,9 +91,9 @@ export default function ProjectDetailPage() {
       status: eligibility,
       received,
     };
-  }, [projectId, user.id], `project-detail:${guest ? 'guest' : student ? 'student' : 'faculty'}:${user.id}:${projectId}`);
+  }, [projectId, user.id], `project-detail:${guest ? 'guest' : admin ? 'admin' : student ? 'student' : 'faculty'}:${user.id}:${projectId}`);
 
-  if (loading) return <Loading />;
+  if (loading) return <ProjectDetailsSkeleton />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
   const { project, aggregate, eligibility, status, received } = data;
 
@@ -142,7 +143,7 @@ export default function ProjectDetailPage() {
           <EvaluateBox eligibility={eligibility} status={status} projectId={project.id} isStudent={student} />
         </section>
       )}
-      {faculty && <ReceivedEvaluations evaluations={received} />}
+      {admin && <ReceivedEvaluations evaluations={received || []} />}
       <Modal open={Boolean(logoPreviewUrl)} title={`${project.title} logo`} onClose={() => setLogoPreviewUrl('')} size="wide">
         <div className="flex max-h-[70vh] min-h-48 items-center justify-center rounded-xl bg-[#0D0D12] p-4">
           <img src={logoPreviewUrl} alt={`${project.title} logo`} className="max-h-[65vh] max-w-full object-contain" />

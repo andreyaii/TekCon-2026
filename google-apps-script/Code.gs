@@ -41,9 +41,7 @@ function testSpreadsheetConnection() {
       ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
       : [];
 
-    results.push(
-      sheetName + ": FOUND | Columns: " + headers.join(", ")
-    );
+    results.push(sheetName + ": FOUND | Columns: " + headers.join(", "));
   });
 
   Logger.log("Spreadsheet connected: " + spreadsheet.getName());
@@ -55,101 +53,108 @@ function testSpreadsheetConnection() {
 
 
 // =====================================================
-// 2. PUBLIC GROUPS
+// 2. HEADER AND DATA HELPERS
 // =====================================================
 
-function getPublicGroups(spreadsheet) {
-  spreadsheet = spreadsheet || getSpreadsheet();
-  const sheet = getRequiredSheet(spreadsheet, "Groups");
+function normalizeHeader(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getHeaderIndex(headers, aliases) {
+  const normalizedAliases = aliases.map(normalizeHeader);
+
+  return headers.findIndex(function(header) {
+    return normalizedAliases.indexOf(normalizeHeader(header)) !== -1;
+  });
+}
+
+function getStudentField(student, aliases) {
+  if (!student) return "";
+
+  const headers = Object.keys(student);
+  const headerIndex = getHeaderIndex(headers, aliases);
+
+  return headerIndex < 0 ? "" : student[headers[headerIndex]];
+}
+
+function normalizeGroupCode(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
+
+function getSheetData(sheet) {
+  if (!sheet) {
+    throw new Error("Cannot read data from a missing sheet.");
+  }
+
   const data = sheet.getDataRange().getValues();
 
   if (data.length <= 1) return [];
 
-  const membersByGroupCode = getStudentsByGroupCode(spreadsheet);
-  const headers = data[0].map(function(header) {
+  const headers = data.shift().map(function(header) {
     return String(header).trim();
   });
-  const groupCodeIndex = headers.indexOf("GroupCode");
-  const linkColumns = {};
-  const resourceHeaders = ["ResearchPaperLink", "PitchVideoLink", "PosterLink"];
-  const resourceIndexes = resourceHeaders.map(function(header) {
-    return headers.indexOf(header);
-  }).filter(function(columnIndex) {
-    return columnIndex >= 0;
-  });
-  let resourceRichText = [];
-  let resourceFormulas = [];
-  let resourceStartColumn = 0;
 
-  if (resourceIndexes.length > 0) {
-    resourceStartColumn = Math.min.apply(null, resourceIndexes);
-    const resourceEndColumn = Math.max.apply(null, resourceIndexes);
-    const resourceRange = sheet.getRange(
-      2,
-      resourceStartColumn + 1,
-      data.length - 1,
-      resourceEndColumn - resourceStartColumn + 1
-    );
-    resourceRichText = resourceRange.getRichTextValues();
-    resourceFormulas = resourceRange.getFormulas();
-  }
+  return data
+    .filter(function(row) {
+      return row.some(function(cell) {
+        return cell !== "" && cell !== null;
+      });
+    })
+    .map(function(row) {
+      const obj = {};
 
-  resourceHeaders.forEach(function(header) {
-    const columnIndex = headers.indexOf(header);
-    linkColumns[header] = columnIndex < 0
-      ? []
-      : getSheetResourceLinks(
-        resourceRichText,
-        resourceFormulas,
-        columnIndex - resourceStartColumn,
-        data.slice(1).map(function(row) {
-          return row[columnIndex];
-        })
-      );
-  });
-
-  return data.slice(1)
-    .map(function(row, index) {
-      const group = {};
-      headers.forEach(function(header, columnIndex) {
-        group[header] = row[columnIndex];
+      headers.forEach(function(header, index) {
+        obj[header] = row[index];
       });
 
-      if (groupCodeIndex >= 0) {
-        group.GroupCode = String(row[groupCodeIndex] || "").trim();
-      }
-
-      group.ResearchPaperLink = linkColumns.ResearchPaperLink[index] || group.ResearchPaperLink;
-      group.PitchVideoLink = linkColumns.PitchVideoLink[index] || group.PitchVideoLink;
-      group.PosterLink = linkColumns.PosterLink[index] || group.PosterLink;
-      return group;
-    })
-    .filter(function(group) {
-      return String(group.GroupCode || "").trim() !== "";
-    })
-    .map(function(group) {
-      return {
-        groupCode: group.GroupCode,
-        title: group.Title,
-        description: group.Description,
-        tag: group.Tag,
-        stage: group.Stage,
-
-        // Actual spreadsheet column: Adviser
-        // Keep facultyId as the API property for compatibility.
-        facultyId: group.Adviser,
-
-        thumbnail: group.Thumbnail,
-        researchPaperLink: group.ResearchPaperLink,
-        pitchVideoLink: group.PitchVideoLink,
-        members: membersByGroupCode[normalizeGroupCode(group.GroupCode)] || [],
-
-        // Actual spreadsheet column: PosterLink
-        // Keep documentationLink as the API property for compatibility.
-        documentationLink: group.PosterLink
-      };
+      return obj;
     });
 }
+
+function getSpreadsheet() {
+  const spreadsheetId = PropertiesService
+    .getScriptProperties()
+    .getProperty("SPREADSHEET_ID");
+
+  if (!spreadsheetId) {
+    throw new Error("SPREADSHEET_ID is missing from Script Properties.");
+  }
+
+  return SpreadsheetApp.openById(spreadsheetId);
+}
+
+function getRequiredSheet(spreadsheet, sheetName) {
+  const sheet = spreadsheet.getSheetByName(sheetName);
+
+  if (!sheet) {
+    throw new Error(sheetName + " sheet not found.");
+  }
+
+  return sheet;
+}
+
+function responseJSON(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function normalizeFacultyRole(role) {
+  return String(role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^faculty[\s_-]+/, "");
+}
+
+
+// =====================================================
+// 3. STUDENT AND GROUP DATA
+// =====================================================
 
 function getStudentsByGroupCode(spreadsheet) {
   const sheet = getRequiredSheet(spreadsheet, "Students");
@@ -158,20 +163,24 @@ function getStudentsByGroupCode(spreadsheet) {
 
   students.forEach(function(student) {
     const groupCode = normalizeGroupCode(
-      getStudentField(student, ["group code", "groupcode"])
+      getStudentField(student, [
+        "team code",
+        "group code",
+        "groupcode"
+      ])
     );
+
     const studentId = String(getStudentField(student, [
-      "student no.",
-      "student number",
       "student id",
-      "member #",
-      "member number"
+      "student no.",
+      "student number"
     ]) || "").trim();
+
     const name = String(getStudentField(student, [
+      "name",
       "name of student",
       "student name",
-      "full name",
-      "name"
+      "full name"
     ]) || "").trim();
 
     if (!groupCode || !name) return;
@@ -190,26 +199,271 @@ function getStudentsByGroupCode(spreadsheet) {
   return membersByGroupCode;
 }
 
-function getStudentField(student, aliases) {
-  const normalizedAliases = aliases.map(normalizeHeader);
-  const header = Object.keys(student).find(function(key) {
-    return normalizedAliases.indexOf(normalizeHeader(key)) !== -1;
+
+function getPublicGroups(spreadsheet) {
+  spreadsheet = spreadsheet || getSpreadsheet();
+
+  const sheet = getRequiredSheet(spreadsheet, "Groups");
+  const data = sheet.getDataRange().getValues();
+
+  if (data.length <= 1) return [];
+
+  const membersByGroupCode = getStudentsByGroupCode(spreadsheet);
+  const descriptionOverrides = getGroupDescriptionOverrides(spreadsheet);
+
+  const headers = data[0].map(function(header) {
+    return String(header).trim();
   });
-  return header ? student[header] : "";
+
+  const groupCodeIndex = getHeaderIndex(headers, [
+    "group code",
+    "groupcode"
+  ]);
+
+  if (groupCodeIndex < 0) {
+    throw new Error("The Groups sheet is missing its GROUP CODE column.");
+  }
+
+  const resourceColumns = [
+    { key: "thumbnail", aliases: ["thumbnail", "logo"] },
+    { key: "researchPaperLink", aliases: ["research paper", "researchpaperlink"] },
+    { key: "pitchVideoLink", aliases: ["video", "pitch video link"] },
+    { key: "posterLink", aliases: ["poster", "poster link"] }
+  ];
+
+  const resourceIndexes = resourceColumns
+    .map(function(resource) {
+      return getHeaderIndex(headers, resource.aliases);
+    })
+    .filter(function(index) {
+      return index >= 0;
+    });
+
+  let resourceRichText = [];
+  let resourceFormulas = [];
+  let resourceStartColumn = 0;
+
+  if (resourceIndexes.length > 0) {
+    resourceStartColumn = Math.min.apply(null, resourceIndexes);
+
+    const resourceEndColumn = Math.max.apply(null, resourceIndexes);
+
+    const resourceRange = sheet.getRange(
+      2,
+      resourceStartColumn + 1,
+      data.length - 1,
+      resourceEndColumn - resourceStartColumn + 1
+    );
+
+    resourceRichText = resourceRange.getRichTextValues();
+    resourceFormulas = resourceRange.getFormulas();
+  }
+
+  const linkColumns = {};
+
+  resourceColumns.forEach(function(resource) {
+    const columnIndex = getHeaderIndex(headers, resource.aliases);
+
+    linkColumns[resource.key] = columnIndex < 0
+      ? []
+      : getSheetResourceLinks(
+          resourceRichText,
+          resourceFormulas,
+          columnIndex - resourceStartColumn,
+          data.slice(1).map(function(row) {
+            return row[columnIndex];
+          })
+        );
+  });
+
+  return data.slice(1)
+    .map(function(row, index) {
+      const group = {};
+
+      headers.forEach(function(header, columnIndex) {
+        group[header] = row[columnIndex];
+      });
+
+      return {
+        group: group,
+        groupCode: String(row[groupCodeIndex] || "").trim(),
+        thumbnail:
+          linkColumns.thumbnail[index] ||
+          getStudentField(group, ["thumbnail", "logo"]),
+        researchPaperLink:
+          linkColumns.researchPaperLink[index] ||
+          getStudentField(group, ["research paper", "researchpaperlink"]),
+        pitchVideoLink:
+          linkColumns.pitchVideoLink[index] ||
+          getStudentField(group, ["video", "pitch video link"]),
+        posterLink:
+          linkColumns.posterLink[index] ||
+          getStudentField(group, ["poster", "poster link"])
+      };
+    })
+    .filter(function(record) {
+      return Boolean(normalizeGroupCode(record.groupCode));
+    })
+    .map(function(record) {
+      const group = record.group;
+      const groupCode = record.groupCode;
+
+      return {
+        groupCode: groupCode,
+        title: getStudentField(group, ["software name", "title"]),
+        description: Object.prototype.hasOwnProperty.call(
+          descriptionOverrides,
+          normalizeGroupCode(groupCode)
+        )
+          ? descriptionOverrides[normalizeGroupCode(groupCode)]
+          : getStudentField(group, ["description"]),
+        tag: getStudentField(group, ["category", "tag"]),
+        stage: getStudentField(group, ["status", "stage"]),
+
+        // Preserve the existing API property name.
+        facultyId: getStudentField(group, ["adviser"]),
+
+        thumbnail: resolveGroupThumbnail(record.thumbnail),
+        researchPaperLink: record.researchPaperLink,
+        pitchVideoLink: record.pitchVideoLink,
+
+        members:
+          membersByGroupCode[normalizeGroupCode(groupCode)] || [],
+
+        // Preserve the existing API property name.
+        documentationLink: record.posterLink
+      };
+    });
 }
 
-function normalizeHeader(value) {
-  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function getDriveFolderId(url) {
+  const driveUrl = String(url || "").trim();
+  if (!/^https?:\/\/(?:www\.)?drive\.google\.com\//i.test(driveUrl)) {
+    return "";
+  }
+
+  const folderPathMatch = driveUrl.match(/\/folders\/([A-Za-z0-9_-]+)/i);
+  if (folderPathMatch) return folderPathMatch[1];
+
+  const folderViewMatch = driveUrl.match(/\/folderview(?:[?#]|$)/i);
+  if (!folderViewMatch) return "";
+
+  const folderIdMatch = driveUrl.match(/[?&]id=([A-Za-z0-9_-]+)/i);
+  return folderIdMatch ? folderIdMatch[1] : "";
 }
 
-function normalizeGroupCode(value) {
-  return String(value || "").trim().replace(/\s+/g, "").toUpperCase();
+function isSupportedDriveImage(file) {
+  const name = String(file.getName() || "");
+  const extensionMatch = name.match(/\.([^.]+)$/);
+  if (!extensionMatch) return false;
+
+  const extension = extensionMatch[1].toLowerCase();
+  const mimeType = String(file.getMimeType() || "").toLowerCase();
+  const supportedTypes = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp"
+  };
+
+  return supportedTypes[extension] === mimeType;
 }
+
+function compareDriveImages(a, b) {
+  const aName = a.name.toLowerCase();
+  const bName = b.name.toLowerCase();
+  if (aName !== bName) return aName < bName ? -1 : 1;
+  if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function resolveGroupThumbnail(thumbnailUrl) {
+  const folderId = getDriveFolderId(thumbnailUrl);
+  if (!folderId) return String(thumbnailUrl || "").trim();
+
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "project-folder-thumbnail:" + folderId;
+  const cachedUrl = cache.get(cacheKey);
+  if (cachedUrl !== null) {
+    return cachedUrl === "__NO_IMAGE__" ? "" : cachedUrl;
+  }
+
+  try {
+    const files = DriveApp.getFolderById(folderId).getFiles();
+    const images = [];
+
+    while (files.hasNext()) {
+      const file = files.next();
+      if (!isSupportedDriveImage(file)) continue;
+      images.push({
+        id: String(file.getId()),
+        name: String(file.getName())
+      });
+    }
+
+    images.sort(compareDriveImages);
+    const selectedUrl = images.length
+      ? "https://drive.google.com/thumbnail?id=" +
+        encodeURIComponent(images[0].id) +
+        "&sz=w1200"
+      : "";
+
+    cache.put(cacheKey, selectedUrl || "__NO_IMAGE__", selectedUrl ? 1800 : 300);
+    return selectedUrl;
+  } catch (error) {
+    Logger.log(
+      "Could not resolve project thumbnail folder " +
+      folderId +
+      ": " +
+      error.message
+    );
+    cache.put(cacheKey, "__NO_IMAGE__", 300);
+    return "";
+  }
+}
+
+function getGroupOverrideColumns(sheet) {
+  const lastColumn = sheet.getLastColumn();
+  const headers = lastColumn > 0
+    ? sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0].map(function(header) {
+      return String(header).trim();
+    })
+    : [];
+  const columns = {
+    groupCode: getHeaderIndex(headers, ["group code", "groupcode"]),
+    description: getHeaderIndex(headers, ["description override"]),
+    updatedAt: getHeaderIndex(headers, ["updated at"])
+  };
+
+  if (columns.groupCode < 0 || columns.description < 0 || columns.updatedAt < 0) {
+    throw new Error(
+      "The GroupOverrides sheet must include GroupCode, DescriptionOverride, and UpdatedAt columns."
+    );
+  }
+  return columns;
+}
+
+function getGroupDescriptionOverrides(spreadsheet) {
+  const sheet = getRequiredSheet(spreadsheet, "GroupOverrides");
+  const values = sheet.getDataRange().getValues();
+  if (values.length === 0) return {};
+
+  const columns = getGroupOverrideColumns(sheet);
+  const overrides = {};
+  for (let rowIndex = 1; rowIndex < values.length; rowIndex++) {
+    const groupCode = normalizeGroupCode(values[rowIndex][columns.groupCode]);
+    if (!groupCode) continue;
+    overrides[groupCode] = values[rowIndex][columns.description];
+  }
+  return overrides;
+}
+
 
 function getSheetResourceLinks(richTextValues, formulas, columnIndex, values) {
   return values.map(function(value, index) {
     const richText = richTextValues[index][columnIndex];
     const directLink = richText && richText.getLinkUrl();
+
     if (directLink) return directLink;
 
     if (richText) {
@@ -217,23 +471,41 @@ function getSheetResourceLinks(richTextValues, formulas, columnIndex, values) {
         .map(function(run) {
           return run.getLinkUrl();
         })
-        .filter(function(url) {
-          return Boolean(url);
-        });
+        .filter(Boolean);
+
       if (runLinks.length === 1) return runLinks[0];
     }
 
     const formula = formulas[index][columnIndex];
-    const formulaMatch = formula && formula.match(/^\s*=\s*HYPERLINK\s*\(\s*"((?:[^"]|"")*)"/i);
-    if (formulaMatch) return formulaMatch[1].replace(/""/g, '"');
+
+    const formulaMatch = formula &&
+      formula.match(/^\s*=\s*HYPERLINK\s*\(\s*"((?:[^"]|"")*)"/i);
+
+    if (formulaMatch) {
+      return formulaMatch[1].replace(/""/g, '"');
+    }
 
     return String(value || "").trim();
   });
 }
 
 
+function getGroupCodes(spreadsheet) {
+  return getSheetData(getRequiredSheet(spreadsheet, "Groups"))
+    .map(function(group) {
+      return String(getStudentField(group, [
+        "group code",
+        "groupcode"
+      ]) || "").trim();
+    })
+    .filter(function(groupCode) {
+      return Boolean(normalizeGroupCode(groupCode));
+    });
+}
+
+
 // =====================================================
-// 3. GET REQUEST HANDLER
+// 4. GET REQUEST HANDLER
 // =====================================================
 
 function doGet(e) {
@@ -244,9 +516,12 @@ function doGet(e) {
 
     const spreadsheet = getSpreadsheet();
 
+    // ADMIN RATING ANALYTICS
     if (action === "getRatingAnalytics") {
       getAuthenticatedAdmin(e.parameter.sessionToken);
+
       const evalSheet = getRequiredSheet(spreadsheet, "Evaluations");
+
       return responseJSON({
         success: true,
         data: {
@@ -258,22 +533,28 @@ function doGet(e) {
       });
     }
 
+    // FACULTY EVALUATION HISTORY
     if (action === "getFacultyEvaluationData") {
       const evaluator = getAuthenticatedFacultyForEvaluationHistory(
         spreadsheet,
         e.parameter.sessionToken
       );
+
       const evaluations = getEvaluationRows(
         getRequiredSheet(spreadsheet, "Evaluations")
       ).filter(function(evaluation) {
-        return String(evaluation.StudentID || "").trim() === evaluator.facultyId;
+        return String(
+          getStudentField(evaluation, ["student id"]) || ""
+        ).trim() === evaluator.facultyId;
       });
+
       return responseJSON({
         success: true,
         data: { evaluations: evaluations }
       });
     }
 
+    // EVALUATION-RELATED GET ACTIONS
     if (
       action === "getMyEvaluations" ||
       action === "getEvaluations" ||
@@ -295,29 +576,49 @@ function doGet(e) {
       }
 
       const evalSheet = getRequiredSheet(spreadsheet, "Evaluations");
-      const evaluatorId = evaluator.type === "student" ? evaluator.studentId : evaluator.facultyId;
+      const evaluatorId = evaluator.type === "student"
+        ? evaluator.studentId
+        : evaluator.facultyId;
+
       const allEvaluations = getEvaluationRows(evalSheet);
+
       const evaluations = allEvaluations.filter(function(evaluation) {
-        return String(evaluation.StudentID || "").trim() === evaluatorId;
+        return String(
+          getStudentField(evaluation, ["student id"]) || ""
+        ).trim() === evaluatorId;
       });
 
       if (action === "getEvaluationsForGroup") {
         if (evaluator.type !== "faculty") {
-          throw new Error("Only signed-in faculty can view received evaluation details.");
+          throw new Error(
+            "Only signed-in faculty can view received evaluation details."
+          );
         }
+
         const groupCode = normalizeGroupCode(e.parameter.groupCode);
+
         if (!groupCode) {
           throw new Error("Group Code is required.");
         }
+
         const groupEvaluations = allEvaluations.filter(function(evaluation) {
-          return normalizeGroupCode(evaluation.GroupCode) === groupCode;
+          return normalizeGroupCode(
+            getStudentField(evaluation, ["group code"])
+          ) === groupCode;
         });
+
         return responseJSON({
           success: true,
-          data: getRatingAnalyticsRows(spreadsheet, groupEvaluations).map(function(evaluation, index) {
+          data: getRatingAnalyticsRows(
+            spreadsheet,
+            groupEvaluations
+          ).map(function(evaluation, index) {
             return {
               ...evaluation,
-              Comment: groupEvaluations[index].Comment
+              Comment: getStudentField(
+                groupEvaluations[index],
+                ["comment"]
+              )
             };
           })
         });
@@ -338,10 +639,15 @@ function doGet(e) {
       }
 
       if (action === "getMyEvaluations" || action === "getEvaluations") {
-        const isFacultyAdmin = evaluator.type === "faculty" && evaluator.role === "admin";
+        const isFacultyAdmin =
+          evaluator.type === "faculty" &&
+          evaluator.role === "admin";
+
         return responseJSON({
           success: true,
-          data: isFacultyAdmin ? getEvaluationRows(evalSheet) : evaluations
+          data: isFacultyAdmin
+            ? getEvaluationRows(evalSheet)
+            : evaluations
         });
       }
 
@@ -364,11 +670,13 @@ function doGet(e) {
       });
     }
 
-    // GET GROUPS / PROJECTS
+    // GET PROJECTS / GROUPS
     if (action === "getGroups" || action === "getProjects") {
       return responseJSON({
         success: true,
-        data: getPublicGroups(spreadsheet)
+        data: getPublicGroups(spreadsheet).filter(function(project) {
+          return String(project.stage || "").trim().toLowerCase() === "posted";
+        })
       });
     }
 
@@ -413,7 +721,7 @@ function doGet(e) {
 
 
 // =====================================================
-// 4. POST REQUEST HANDLER
+// 5. POST REQUEST HANDLER
 // =====================================================
 
 function doPost(e) {
@@ -424,12 +732,11 @@ function doPost(e) {
 
     const payload = JSON.parse(e.postData.contents);
     const action = payload.action;
-
     const spreadsheet = getSpreadsheet();
 
 
     // -------------------------------------------------
-    // A. STUDENT / FACULTY / ADMIN LOGIN
+    // A. LOGIN
     // -------------------------------------------------
 
     if (action === "login") {
@@ -441,10 +748,14 @@ function doPost(e) {
         throw new Error("Please provide your login credentials and role.");
       }
 
-      const role = requestedRole.toLowerCase() === "faculty" && identifier.toLowerCase() === "guest"
-        ? "Guest"
-        : requestedRole;
+      const role =
+        requestedRole.toLowerCase() === "faculty" &&
+        identifier.toLowerCase() === "guest"
+          ? "Guest"
+          : requestedRole;
+
       const isGuest = role.toLowerCase() === "guest";
+
       const isFacultyOrAdmin =
         role.toLowerCase() === "faculty" ||
         role.toLowerCase() === "admin";
@@ -461,17 +772,35 @@ function doPost(e) {
       if (isGuest) {
         let guestUser = null;
         const guestSheet = spreadsheet.getSheetByName("Guests");
+
         if (guestSheet) {
           const guests = getSheetData(guestSheet);
+
           guestUser = guests.find(function(g) {
-            const gid = String(g.GuestID || g.ID || g.Email || g.Username || "").trim().toLowerCase();
+            const gid = String(
+              g.GuestID || g.ID || g.Email || g.Username || ""
+            ).trim().toLowerCase();
+
             const gpass = String(g.Password || "").trim();
-            return gid === identifier.toLowerCase() && gpass === password;
+
+            return gid === identifier.toLowerCase() &&
+              gpass === password;
           });
         }
+
         if (!guestUser) {
-          const validGuestId = identifier.toLowerCase() === "guest" || identifier.toLowerCase() === "guest@techcon.edu" || identifier.toLowerCase() === "guest-001";
-          const validGuestPass = password === "guest" || password === "techcon123" || password === "guest123";
+          const validGuestId = [
+            "guest",
+            "guest@techcon.edu",
+            "guest-001"
+          ].indexOf(identifier.toLowerCase()) !== -1;
+
+          const validGuestPass = [
+            "guest",
+            "techcon123",
+            "guest123"
+          ].indexOf(password) !== -1;
+
           if (validGuestId && validGuestPass) {
             guestUser = {
               GuestID: "GUEST-001",
@@ -480,13 +809,18 @@ function doPost(e) {
             };
           }
         }
+
         if (!guestUser) {
           return responseJSON({
             success: false,
             message: "Invalid credentials for Guest. Use guest / guest."
           });
         }
-        const sessionToken = createGuestSession(guestUser.GuestID || "GUEST-001");
+
+        const sessionToken = createGuestSession(
+          guestUser.GuestID || "GUEST-001"
+        );
+
         return responseJSON({
           success: true,
           sessionToken: sessionToken,
@@ -508,18 +842,8 @@ function doPost(e) {
 
       const user = users.find(function(u) {
         if (isFacultyOrAdmin) {
-
-          // FACULTY / ADMIN LOGIN
-          // Uses ONLY FacultyID and Password.
-
-          const facultyId = String(
-            u.FacultyID || ""
-          ).trim();
-
-          const facultyPassword = String(
-            u.Password || ""
-          ).trim();
-
+          const facultyId = String(u.FacultyID || "").trim();
+          const facultyPassword = String(u.Password || "").trim();
           const facultyRole = normalizeFacultyRole(u.Role);
 
           const matchesCredentials =
@@ -531,45 +855,39 @@ function doPost(e) {
             : facultyRole === role.toLowerCase();
 
           return matchesCredentials && matchesRole;
-
-        } else {
-
-          // STUDENT LOGIN
-          // Uses the exact spreadsheet column headers.
-
-          const studentNo = String(getStudentField(u, [
-            "student no.",
-            "student number",
-            "student id"
-          ]) || "").trim();
-
-          const studentName = String(getStudentField(u, [
-            "name of student",
-            "student name",
-            "full name",
-            "name"
-          ]) || "").trim();
-
-          const memberNo = String(getStudentField(u, [
-            "member #",
-            "member number"
-          ]) || "").trim();
-
-          const studentPin = String(getStudentField(u, [
-            "pin",
-            "password"
-          ]) || "").trim();
-
-          const matchesIdentifier =
-            studentNo === identifier ||
-            studentName === identifier ||
-            memberNo === identifier;
-
-          const matchesPassword =
-            studentPin === password;
-
-          return matchesIdentifier && matchesPassword;
         }
+
+        // STUDENT LOGIN
+        const studentNo = String(getStudentField(u, [
+          "student id",
+          "student no.",
+          "student number"
+        ]) || "").trim();
+
+        const studentName = String(getStudentField(u, [
+          "name",
+          "name of student",
+          "student name",
+          "full name"
+        ]) || "").trim();
+
+        const memberNo = String(getStudentField(u, [
+          "member id",
+          "member #",
+          "member number"
+        ]) || "").trim();
+
+        const studentPin = String(getStudentField(u, [
+          "pin",
+          "password"
+        ]) || "").trim();
+
+        const matchesIdentifier =
+          studentNo === identifier ||
+          studentName === identifier ||
+          memberNo === identifier;
+
+        return matchesIdentifier && studentPin === password;
       });
 
       if (!user) {
@@ -579,9 +897,13 @@ function doPost(e) {
         });
       }
 
-      // FACULTY / ADMIN USER RESPONSE
+      // FACULTY / ADMIN RESPONSE
       if (isFacultyOrAdmin) {
-        const sessionToken = createFacultySession(user.FacultyID, normalizeFacultyRole(user.Role));
+        const sessionToken = createFacultySession(
+          user.FacultyID,
+          normalizeFacultyRole(user.Role)
+        );
+
         return responseJSON({
           success: true,
           sessionToken: sessionToken,
@@ -594,14 +916,19 @@ function doPost(e) {
         });
       }
 
-      // STUDENT USER RESPONSE
+      // STUDENT RESPONSE
       const studentId = String(getStudentField(user, [
-        "student no.",
-        "student number",
         "student id",
-        "member #",
-        "member number"
+        "student no.",
+        "student number"
       ]) || "").trim();
+
+      if (!studentId) {
+        throw new Error(
+          "The authenticated student does not have a StudentID."
+        );
+      }
+
       const sessionToken = createStudentSession(studentId);
 
       return responseJSON({
@@ -609,23 +936,26 @@ function doPost(e) {
         sessionToken: sessionToken,
         user: {
           StudentID: studentId,
-          StudentNo: getStudentField(user, [
-            "student no.",
-            "student number",
-            "student id"
-          ]),
+          StudentNo: studentId,
           FullName: getStudentField(user, [
+            "name",
             "name of student",
             "student name",
-            "full name",
-            "name"
+            "full name"
           ]),
           GroupCode: getStudentField(user, [
+            "team code",
             "group code",
             "groupcode"
           ]),
-          Program: getStudentField(user, ["program"]),
-          Sec: getStudentField(user, ["sec", "section"])
+          Program: getStudentField(user, [
+            "course",
+            "program"
+          ]),
+          Sec: getStudentField(user, [
+            "section",
+            "sec"
+          ])
         },
         role: "student"
       });
@@ -633,7 +963,7 @@ function doPost(e) {
 
 
     // -------------------------------------------------
-    // B. SUBMIT PEER EVALUATION
+    // B. SUBMIT EVALUATION
     // -------------------------------------------------
 
     if (action === "submitEvaluation") {
@@ -641,6 +971,7 @@ function doPost(e) {
         spreadsheet,
         "Evaluations"
       );
+
       const lock = LockService.getScriptLock();
       lock.waitLock(10000);
 
@@ -649,61 +980,155 @@ function doPost(e) {
           spreadsheet,
           payload.sessionToken
         );
+
         if (evaluator.type === "guest") {
           throw new Error("Guests cannot evaluate projects.");
         }
 
-        const requestedGroupCode = String(payload.groupCode || "").trim();
+        const requestedGroupCode = String(
+          payload.groupCode || ""
+        ).trim();
+
         if (!requestedGroupCode) {
           throw new Error("Group Code is required.");
         }
 
-        const researchPaperRating = validateRating(payload.researchPaperRating);
-        const pitchVideoRating = validateRating(payload.pitchVideoRating);
-        const posterRating = validateRating(payload.posterRating);
-        const logoRating = validateRating(payload.logoRating);
-        const comment = payload.comment === undefined ? "" : payload.comment;
+        const comment = payload.comment === undefined
+          ? ""
+          : payload.comment;
+
         if (typeof comment !== "string") {
           throw new Error("Comment must be text.");
         }
+
         if (comment.trim().length > 500) {
-          throw new Error("Comment must be 500 characters or fewer.");
+          throw new Error(
+            "Comment must be 500 characters or fewer."
+          );
         }
 
-        const groupsSheet = getRequiredSheet(spreadsheet, "Groups");
+        const groupsSheet = getRequiredSheet(
+          spreadsheet,
+          "Groups"
+        );
+
         const groupsData = getSheetData(groupsSheet);
+
         const group = groupsData.find(function(candidate) {
-          return normalizeGroupCode(candidate.GroupCode) === normalizeGroupCode(requestedGroupCode);
+          return normalizeGroupCode(
+            getStudentField(candidate, [
+              "group code",
+              "groupcode"
+            ])
+          ) === normalizeGroupCode(requestedGroupCode);
         });
+
         if (!group) {
           throw new Error("This project group could not be found.");
         }
-        const groupCode = group.GroupCode;
+
+        const project = getPublicGroups(spreadsheet).find(function(candidate) {
+          return normalizeGroupCode(candidate.groupCode) ===
+            normalizeGroupCode(requestedGroupCode);
+        });
+
+        if (!project) {
+          throw new Error("This project group could not be found.");
+        }
+
+        const ratingFields = [
+          {
+            key: "researchPaperRating",
+            label: "Research Paper",
+            hasSubmission: hasValidResourceUrl(project.researchPaperLink)
+          },
+          {
+            key: "pitchVideoRating",
+            label: "Pitch Video",
+            hasSubmission: hasValidResourceUrl(project.pitchVideoLink)
+          },
+          {
+            key: "posterRating",
+            label: "Poster",
+            hasSubmission: hasValidResourceUrl(project.documentationLink)
+          },
+          {
+            key: "logoRating",
+            label: "Logo",
+            hasSubmission: hasValidResourceUrl(project.thumbnail)
+          }
+        ];
+
+        let availableCriteria = 0;
+        const validatedRatings = {};
+        ratingFields.forEach(function(field) {
+          if (field.hasSubmission) availableCriteria += 1;
+          validatedRatings[field.key] = validateCriterionRating(
+            payload[field.key],
+            field.hasSubmission,
+            field.label
+          );
+        });
+
+        if (availableCriteria === 0) {
+          throw new Error("This project has no submitted resources to evaluate.");
+        }
+
+        const groupCode = getStudentField(group, [
+          "group code",
+          "groupcode"
+        ]);
 
         if (evaluator.type === "student") {
-          if (normalizeGroupCode(evaluator.groupCode) === normalizeGroupCode(groupCode)) {
+          if (
+            normalizeGroupCode(evaluator.groupCode) ===
+            normalizeGroupCode(groupCode)
+          ) {
             throw new Error("You cannot evaluate your own group.");
           }
         } else if (evaluator.type === "faculty") {
-          // Faculty Advisers cannot rate groups assigned to them.
-          const adviser = String(group.Adviser || "").trim().toLowerCase();
-          const facultyId = String(evaluator.facultyId || "").trim().toLowerCase();
-          const facultyName = String(evaluator.fullName || "").trim().toLowerCase();
-          if (adviser && (adviser === facultyId || adviser === facultyName)) {
-            throw new Error("Faculty advisers cannot evaluate groups assigned to them.");
+          const adviser = String(
+            getStudentField(group, ["adviser"]) || ""
+          ).trim().toLowerCase();
+
+          const facultyId = String(
+            evaluator.facultyId || ""
+          ).trim().toLowerCase();
+
+          const facultyName = String(
+            evaluator.fullName || ""
+          ).trim().toLowerCase();
+
+          if (
+            adviser &&
+            (adviser === facultyId || adviser === facultyName)
+          ) {
+            throw new Error(
+              "Faculty advisers cannot evaluate groups assigned to them."
+            );
           }
         }
 
-        const evaluatorId = evaluator.type === "student" ? evaluator.studentId : evaluator.facultyId;
+        const evaluatorId = evaluator.type === "student"
+          ? evaluator.studentId
+          : evaluator.facultyId;
+
         const evaluations = getEvaluationRows(evalSheet);
+
         const mine = evaluations.filter(function(evaluation) {
-          return String(evaluation.StudentID || "").trim() === evaluatorId;
+          return String(
+            getStudentField(evaluation, ["student id"]) || ""
+          ).trim() === evaluatorId;
         });
+
         if (mine.some(function(evaluation) {
-          return normalizeGroupCode(evaluation.GroupCode) === normalizeGroupCode(groupCode);
+          return normalizeGroupCode(
+            getStudentField(evaluation, ["group code"])
+          ) === normalizeGroupCode(groupCode);
         })) {
           throw new Error("You have already evaluated this group.");
         }
+
         const evaluationId = generateEvaluationId(evalSheet);
 
         const submittedAt = Utilities.formatDate(
@@ -711,20 +1136,22 @@ function doPost(e) {
           "Asia/Manila",
           "yyyy-MM-dd HH:mm:ss"
         );
+
         const evaluation = {
           EvaluationID: evaluationId,
           StudentID: evaluatorId,
           GroupCode: groupCode,
-          ResearchPaperRating: researchPaperRating,
-          PitchVideoRating: pitchVideoRating,
-          PosterRating: posterRating,
-          LogoRating: logoRating,
+          ResearchPaperRating: validatedRatings.researchPaperRating,
+          PitchVideoRating: validatedRatings.pitchVideoRating,
+          PosterRating: validatedRatings.posterRating,
+          LogoRating: validatedRatings.logoRating,
           Comment: comment.trim(),
           SubmittedAt: submittedAt
         };
+
         evalSheet.appendRow(
           getEvaluationHeaders(evalSheet).map(function(header) {
-            return evaluation[header];
+            return getStudentField(evaluation, [header]);
           })
         );
 
@@ -733,6 +1160,7 @@ function doPost(e) {
           evaluationId: evaluationId,
           submittedAt: submittedAt
         });
+
       } finally {
         lock.releaseLock();
       }
@@ -749,26 +1177,18 @@ function doPost(e) {
         "EvaluationSettings"
       );
 
-      const setting = String(
-        payload.setting || ""
-      ).trim();
+      const setting = String(payload.setting || "").trim();
 
       if (!setting) {
         throw new Error("Setting name is required.");
       }
 
       const data = settingsSheet.getDataRange().getValues();
-
       let settingFound = false;
 
       for (let i = 1; i < data.length; i++) {
-        if (
-          String(data[i][0]).trim() === setting
-        ) {
-          settingsSheet.getRange(i + 1, 2).setValue(
-            payload.value
-          );
-
+        if (String(data[i][0]).trim() === setting) {
+          settingsSheet.getRange(i + 1, 2).setValue(payload.value);
           settingFound = true;
           break;
         }
@@ -786,16 +1206,14 @@ function doPost(e) {
 
 
     // -------------------------------------------------
-    // D. UPLOAD PROJECT THUMBNAIL
+    // D. UPDATE GROUP DESCRIPTION
     // -------------------------------------------------
 
-    if (action === "uploadThumbnail") {
+    if (action === "updateGroupDescription") {
       const lock = LockService.getScriptLock();
       lock.waitLock(10000);
 
       try {
-        // Authenticate the student.
-        // Never trust a group code supplied by the frontend.
         const student = getAuthenticatedStudent(
           spreadsheet,
           payload.sessionToken
@@ -807,7 +1225,148 @@ function doPost(e) {
           throw new Error("You are not currently assigned to a group.");
         }
 
-        // Validate the image data.
+        if (typeof payload.description !== "string") {
+          throw new Error("The group description must be text.");
+        }
+
+        const description = payload.description.trim();
+
+        if (description.length > 2000) {
+          throw new Error(
+            "The group description must be 2000 characters or fewer."
+          );
+        }
+
+        const groupsSheet = getRequiredSheet(
+          spreadsheet,
+          "Groups"
+        );
+
+        const values = groupsSheet.getDataRange().getValues();
+
+        if (values.length < 2) {
+          throw new Error(
+            "The Groups sheet does not contain any project rows."
+          );
+        }
+
+        const headers = values[0].map(function(header) {
+          return String(header).trim();
+        });
+
+        const groupCodeIndex = getHeaderIndex(
+          headers,
+          ["group code", "groupcode"]
+        );
+
+        const descriptionIndex = getHeaderIndex(
+          headers,
+          ["description"]
+        );
+
+        if (groupCodeIndex < 0 || descriptionIndex < 0) {
+          throw new Error(
+            "The Groups sheet must contain GROUP CODE and DESCRIPTION columns."
+          );
+        }
+
+        let targetRow = -1;
+
+        for (let i = 1; i < values.length; i++) {
+          if (
+            normalizeGroupCode(values[i][groupCodeIndex]) === groupCode
+          ) {
+            targetRow = i + 1;
+            break;
+          }
+        }
+
+        if (targetRow < 0) {
+          throw new Error("Your assigned group could not be found.");
+        }
+
+        const overridesSheet = getRequiredSheet(
+          spreadsheet,
+          "GroupOverrides"
+        );
+        const overrideValues = overridesSheet.getDataRange().getValues();
+        const overrideColumns = getGroupOverrideColumns(overridesSheet);
+        const matchingRows = [];
+        for (let i = 1; i < overrideValues.length; i++) {
+          if (
+            normalizeGroupCode(overrideValues[i][overrideColumns.groupCode]) ===
+            groupCode
+          ) {
+            matchingRows.push(i + 1);
+          }
+        }
+
+        const updatedAt = new Date();
+        if (matchingRows.length > 0) {
+          const targetOverrideRow = matchingRows[0];
+          overridesSheet
+            .getRange(targetOverrideRow, overrideColumns.groupCode + 1)
+            .setValue(String(student.groupCode).trim());
+          overridesSheet
+            .getRange(targetOverrideRow, overrideColumns.description + 1)
+            .setValue(description);
+          overridesSheet
+            .getRange(targetOverrideRow, overrideColumns.updatedAt + 1)
+            .setValue(updatedAt);
+
+          matchingRows.slice(1).reverse().forEach(function(rowNumber) {
+            overridesSheet.deleteRow(rowNumber);
+          });
+        } else {
+          const overrideHeaders = overridesSheet
+            .getRange(1, 1, 1, overridesSheet.getLastColumn())
+            .getDisplayValues()[0]
+            .map(function(header) {
+              return String(header).trim();
+            });
+          const newOverride = new Array(overrideHeaders.length).fill("");
+          newOverride[overrideColumns.groupCode] = String(student.groupCode).trim();
+          newOverride[overrideColumns.description] = description;
+          newOverride[overrideColumns.updatedAt] = updatedAt;
+          overridesSheet.appendRow(newOverride);
+        }
+
+        return responseJSON({
+          success: true,
+          message: "Group description updated successfully.",
+          description: description
+        });
+
+      } finally {
+        lock.releaseLock();
+      }
+    }
+
+    if (action === "uploadThumbnail" || action === "deleteThumbnail") {
+      throw new Error("Project thumbnails are managed through the Groups sheet.");
+    }
+
+
+    // -------------------------------------------------
+    // E. UPLOAD PROJECT THUMBNAIL
+    // -------------------------------------------------
+
+    if (action === "uploadThumbnail") {
+      const lock = LockService.getScriptLock();
+      lock.waitLock(10000);
+
+      try {
+        const student = getAuthenticatedStudent(
+          spreadsheet,
+          payload.sessionToken
+        );
+
+        const groupCode = normalizeGroupCode(student.groupCode);
+
+        if (!groupCode) {
+          throw new Error("You are not currently assigned to a group.");
+        }
+
         const imageData = String(payload.imageData || "");
 
         const match = imageData.match(
@@ -815,25 +1374,27 @@ function doPost(e) {
         );
 
         if (!match) {
-          throw new Error("Please upload a valid JPG, PNG, or WebP image.");
+          throw new Error(
+            "Please upload a valid JPG, PNG, or WebP image."
+          );
         }
 
         const mimeType = match[1];
         const base64Data = match[2];
         const imageBytes = Utilities.base64Decode(base64Data);
 
-        // Limit uploads to 2 MB.
         if (imageBytes.length > 2 * 1024 * 1024) {
           throw new Error("Image size must not exceed 2 MB.");
         }
 
-        // Get the dedicated Google Drive folder.
         const folderId = PropertiesService
           .getScriptProperties()
           .getProperty("THUMBNAIL_FOLDER_ID");
 
         if (!folderId) {
-          throw new Error("THUMBNAIL_FOLDER_ID is missing from Script Properties.");
+          throw new Error(
+            "THUMBNAIL_FOLDER_ID is missing from Script Properties."
+          );
         }
 
         const folder = DriveApp.getFolderById(folderId);
@@ -844,21 +1405,36 @@ function doPost(e) {
           "image/webp": "webp"
         }[mimeType];
 
-        // Find the student's group in the Groups sheet before touching Drive,
-        // so a missing row cannot leave a new image behind.
-        const groupsSheet = getRequiredSheet(spreadsheet, "Groups");
+        const groupsSheet = getRequiredSheet(
+          spreadsheet,
+          "Groups"
+        );
+
         const values = groupsSheet.getDataRange().getValues();
+
+        if (values.length < 2) {
+          throw new Error(
+            "The Groups sheet does not contain any project rows."
+          );
+        }
 
         const headers = values[0].map(function(header) {
           return String(header).trim();
         });
 
-        const groupCodeIndex = headers.indexOf("GroupCode");
-        const thumbnailIndex = headers.indexOf("Thumbnail");
+        const groupCodeIndex = getHeaderIndex(
+          headers,
+          ["group code", "groupcode"]
+        );
+
+        const thumbnailIndex = getHeaderIndex(
+          headers,
+          ["logo", "thumbnail"]
+        );
 
         if (groupCodeIndex < 0 || thumbnailIndex < 0) {
           throw new Error(
-            "The Groups sheet must contain GroupCode and Thumbnail columns."
+            "The Groups sheet must contain GROUP CODE and LOGO columns."
           );
         }
 
@@ -881,15 +1457,19 @@ function doPost(e) {
           targetRow,
           thumbnailIndex + 1
         );
-        const existingThumbnailUrl = String(thumbnailCell.getValue() || "").trim();
-        // One stable name per group. The Thumbnail column has a single cell,
-        // so the folder must keep a single image for that group.
+
+        const existingThumbnailUrl = String(
+          thumbnailCell.getValue() || ""
+        ).trim();
+
         const fileName = "thumbnail_" + groupCode + "." + extension;
+
         const blob = Utilities.newBlob(
           imageBytes,
           mimeType,
           fileName
         );
+
         const file = replaceGroupThumbnailFile(
           folder,
           folderId,
@@ -899,12 +1479,11 @@ function doPost(e) {
           fileName
         );
 
-        // Image access is inherited from the preconfigured thumbnail folder.
-        // The version parameter changes after each edit so browsers reload the
-        // same Drive file instead of showing a cached copy.
         const thumbnailUrl =
           "https://drive.google.com/thumbnail?id=" +
-          file.getId() + "&sz=w1200&v=" + new Date().getTime();
+          file.getId() +
+          "&sz=w1200&v=" +
+          new Date().getTime();
 
         thumbnailCell.setValue(thumbnailUrl);
 
@@ -919,6 +1498,11 @@ function doPost(e) {
       }
     }
 
+
+    // -------------------------------------------------
+    // F. DELETE PROJECT THUMBNAIL
+    // -------------------------------------------------
+
     if (action === "deleteThumbnail") {
       const lock = LockService.getScriptLock();
       lock.waitLock(10000);
@@ -928,34 +1512,57 @@ function doPost(e) {
           spreadsheet,
           payload.sessionToken
         );
+
         const groupCode = normalizeGroupCode(student.groupCode);
+
         if (!groupCode) {
           throw new Error("You are not currently assigned to a group.");
         }
 
-        const groupsSheet = getRequiredSheet(spreadsheet, "Groups");
+        const groupsSheet = getRequiredSheet(
+          spreadsheet,
+          "Groups"
+        );
+
         const values = groupsSheet.getDataRange().getValues();
+
         if (values.length < 2) {
-          throw new Error("The Groups sheet does not contain any project rows.");
+          throw new Error(
+            "The Groups sheet does not contain any project rows."
+          );
         }
+
         const headers = values[0].map(function(header) {
           return String(header).trim();
         });
-        const groupCodeIndex = headers.indexOf("GroupCode");
-        const thumbnailIndex = headers.indexOf("Thumbnail");
+
+        const groupCodeIndex = getHeaderIndex(
+          headers,
+          ["group code", "groupcode"]
+        );
+
+        const thumbnailIndex = getHeaderIndex(
+          headers,
+          ["logo", "thumbnail"]
+        );
+
         if (groupCodeIndex < 0 || thumbnailIndex < 0) {
           throw new Error(
-            "The Groups sheet must contain GroupCode and Thumbnail columns."
+            "The Groups sheet must contain GROUP CODE and LOGO columns."
           );
         }
 
         let targetRow = -1;
+
         for (let i = 1; i < values.length; i++) {
-          if (normalizeGroupCode(values[i][groupCodeIndex]) === groupCode) {
+          if (
+            normalizeGroupCode(values[i][groupCodeIndex]) === groupCode
+          ) {
             targetRow = i + 1;
             break;
           }
         }
+
         if (targetRow < 0) {
           throw new Error("Your assigned group could not be found.");
         }
@@ -964,19 +1571,30 @@ function doPost(e) {
           targetRow,
           thumbnailIndex + 1
         );
-        const thumbnailUrl = String(thumbnailCell.getValue() || "").trim();
+
+        const thumbnailUrl = String(
+          thumbnailCell.getValue() || ""
+        ).trim();
+
         if (thumbnailUrl) {
           const fileId = getThumbnailFileId(thumbnailUrl);
+
           const folderId = PropertiesService
             .getScriptProperties()
             .getProperty("THUMBNAIL_FOLDER_ID");
+
           if (!folderId) {
-            throw new Error("THUMBNAIL_FOLDER_ID is missing from Script Properties.");
+            throw new Error(
+              "THUMBNAIL_FOLDER_ID is missing from Script Properties."
+            );
           }
 
           const file = DriveApp.getFileById(fileId);
+
           if (!thumbnailFileBelongsToFolder(file, folderId)) {
-            throw new Error("The saved thumbnail is not in the configured thumbnail folder.");
+            throw new Error(
+              "The saved thumbnail is not in the configured thumbnail folder."
+            );
           }
 
           file.setTrashed(true);
@@ -988,10 +1606,12 @@ function doPost(e) {
           message: "Project thumbnail deleted successfully.",
           thumbnail: null
         });
+
       } finally {
         lock.releaseLock();
       }
     }
+
 
     // -------------------------------------------------
     // INVALID POST ACTION
@@ -1014,7 +1634,310 @@ function doPost(e) {
 
 
 // =====================================================
-// 5. HELPER FUNCTIONS
+// 6. AUTHENTICATION AND SESSION HELPERS
+// =====================================================
+
+function createStudentSession(studentId) {
+  if (!studentId) {
+    throw new Error(
+      "The authenticated student does not have a StudentID."
+    );
+  }
+
+  const sessionToken = Utilities.getUuid();
+
+  CacheService.getScriptCache().put(
+    "student-session:" + sessionToken,
+    JSON.stringify({ studentId: studentId }),
+    21600
+  );
+
+  return sessionToken;
+}
+
+
+function createFacultySession(facultyId, role) {
+  const normalizedFacultyId = String(facultyId || "").trim();
+
+  if (!normalizedFacultyId) {
+    throw new Error(
+      "The authenticated faculty does not have a FacultyID."
+    );
+  }
+
+  const sessionToken = Utilities.getUuid();
+
+  CacheService.getScriptCache().put(
+    "faculty-session:" + sessionToken,
+    JSON.stringify({
+      facultyId: normalizedFacultyId,
+      role: role
+    }),
+    21600
+  );
+
+  return sessionToken;
+}
+
+
+function createGuestSession(guestId) {
+  const sessionToken = Utilities.getUuid();
+
+  CacheService.getScriptCache().put(
+    "guest-session:" + sessionToken,
+    JSON.stringify({
+      guestId: guestId || "GUEST-001"
+    }),
+    21600
+  );
+
+  return sessionToken;
+}
+
+
+function getAuthenticatedAdmin(sessionToken) {
+  const token = String(sessionToken || "").trim();
+
+  if (!token) {
+    throw new Error(
+      "A valid session is required. Please sign in again."
+    );
+  }
+
+  const sessionData = CacheService.getScriptCache().get(
+    "faculty-session:" + token
+  );
+
+  if (!sessionData) {
+    throw new Error(
+      "Your session has expired. Please sign in again."
+    );
+  }
+
+  let session;
+
+  try {
+    session = JSON.parse(sessionData);
+  } catch (error) {
+    throw new Error(
+      "Your faculty session is invalid. Please sign in again."
+    );
+  }
+
+  if (
+    !String(session.facultyId || "").trim() ||
+    normalizeFacultyRole(session.role) !== "admin"
+  ) {
+    throw new Error(
+      "Only faculty administrators can view rating analytics."
+    );
+  }
+
+  return {
+    type: "faculty",
+    facultyId: String(session.facultyId).trim(),
+    role: "admin"
+  };
+}
+
+
+function getAuthenticatedFacultyForEvaluationHistory(
+  spreadsheet,
+  sessionToken
+) {
+  const token = String(sessionToken || "").trim();
+
+  const sessionData = token
+    ? CacheService.getScriptCache().get("faculty-session:" + token)
+    : null;
+
+  if (!sessionData) {
+    throw new Error(
+      "A valid faculty session is required. Please sign in again."
+    );
+  }
+
+  let session;
+
+  try {
+    session = JSON.parse(sessionData);
+  } catch (error) {
+    throw new Error(
+      "Your faculty session is invalid. Please sign in again."
+    );
+  }
+
+  if (normalizeFacultyRole(session.role) === "admin") {
+    return getAuthenticatedAdmin(token);
+  }
+
+  const evaluator = getAuthenticatedEvaluator(
+    spreadsheet,
+    token
+  );
+
+  if (evaluator.type !== "faculty") {
+    throw new Error(
+      "Only signed-in faculty can view their evaluations."
+    );
+  }
+
+  return evaluator;
+}
+
+
+function getAuthenticatedEvaluator(spreadsheet, sessionToken) {
+  const token = String(sessionToken || "").trim();
+
+  if (!token) {
+    throw new Error(
+      "A valid session is required. Please sign in again."
+    );
+  }
+
+  // GUEST SESSION
+  const guestData = CacheService.getScriptCache().get(
+    "guest-session:" + token
+  );
+
+  if (guestData) {
+    return {
+      type: "guest",
+      guestId: "GUEST-001"
+    };
+  }
+
+  // FACULTY SESSION
+  const facultyData = CacheService.getScriptCache().get(
+    "faculty-session:" + token
+  );
+
+  if (facultyData) {
+    let parsed;
+
+    try {
+      parsed = JSON.parse(facultyData);
+    } catch (error) {
+      throw new Error(
+        "Your faculty session is invalid. Please sign in again."
+      );
+    }
+
+    const facultySheet = getRequiredSheet(
+      spreadsheet,
+      "Faculty"
+    );
+
+    const facultyMembers = getSheetData(facultySheet);
+    const sessionFacultyId = String(
+      parsed.facultyId || ""
+    ).trim();
+
+    if (!sessionFacultyId) {
+      throw new Error(
+        "Your faculty session is invalid. Please sign in again."
+      );
+    }
+
+    const member = facultyMembers.find(function(f) {
+      return String(f.FacultyID || "").trim() === sessionFacultyId;
+    });
+
+    if (!member) {
+      throw new Error(
+        "The faculty account for this session could not be found."
+      );
+    }
+
+    return {
+      type: "faculty",
+      facultyId: String(member.FacultyID || "").trim(),
+      fullName: String(member.FullName || "").trim(),
+      role: normalizeFacultyRole(member.Role)
+    };
+  }
+
+  // STUDENT SESSION
+  const student = getAuthenticatedStudent(
+    spreadsheet,
+    token
+  );
+
+  return {
+    type: "student",
+    studentId: student.studentId,
+    groupCode: student.groupCode
+  };
+}
+
+
+function getAuthenticatedStudent(spreadsheet, sessionToken) {
+  const token = String(sessionToken || "").trim();
+
+  if (!token) {
+    throw new Error(
+      "A valid student session is required. Please sign in again."
+    );
+  }
+
+  const sessionData = CacheService.getScriptCache().get(
+    "student-session:" + token
+  );
+
+  if (!sessionData) {
+    throw new Error(
+      "Your student session has expired. Please sign in again."
+    );
+  }
+
+  let session;
+
+  try {
+    session = JSON.parse(sessionData);
+  } catch (error) {
+    throw new Error(
+      "Your student session is invalid. Please sign in again."
+    );
+  }
+
+  const students = getSheetData(
+    getRequiredSheet(spreadsheet, "Students")
+  );
+
+  const student = students.find(function(record) {
+    const id = String(getStudentField(record, [
+      "student id",
+      "student no.",
+      "student number"
+    ]) || "").trim();
+
+    return id === session.studentId;
+  });
+
+  if (!student) {
+    throw new Error(
+      "The student account for this session could not be found."
+    );
+  }
+
+  return {
+    studentId: String(getStudentField(student, [
+      "student id",
+      "student no.",
+      "student number"
+    ]) || "").trim(),
+
+    groupCode: String(getStudentField(student, [
+      "team code",
+      "group code",
+      "groupcode"
+    ]) || "").trim()
+  };
+}
+
+
+// =====================================================
+// 7. EVALUATION HELPERS
 // =====================================================
 
 const EVALUATION_HEADERS = [
@@ -1029,213 +1952,22 @@ const EVALUATION_HEADERS = [
   "SubmittedAt"
 ];
 
-function createStudentSession(studentId) {
-  if (!studentId) {
-    throw new Error("The authenticated student does not have a StudentID.");
-  }
-  const sessionToken = Utilities.getUuid();
-  CacheService.getScriptCache().put(
-    "student-session:" + sessionToken,
-    JSON.stringify({ studentId: studentId }),
-    21600
-  );
-  return sessionToken;
-}
-
-function createFacultySession(facultyId, role) {
-  const normalizedFacultyId = String(facultyId || "").trim();
-  if (!normalizedFacultyId) {
-    throw new Error("The authenticated faculty does not have a FacultyID.");
-  }
-  const sessionToken = Utilities.getUuid();
-  CacheService.getScriptCache().put(
-    "faculty-session:" + sessionToken,
-    JSON.stringify({ facultyId: normalizedFacultyId, role: role }),
-    21600
-  );
-  return sessionToken;
-}
-
-function createGuestSession(guestId) {
-  const sessionToken = Utilities.getUuid();
-  CacheService.getScriptCache().put(
-    "guest-session:" + sessionToken,
-    JSON.stringify({ guestId: guestId || "GUEST-001" }),
-    21600
-  );
-  return sessionToken;
-}
-
-function getAuthenticatedAdmin(sessionToken) {
-  const token = String(sessionToken || "").trim();
-  if (!token) {
-    throw new Error("A valid session is required. Please sign in again.");
-  }
-
-  const sessionData = CacheService.getScriptCache().get(
-    "faculty-session:" + token
-  );
-  if (!sessionData) {
-    throw new Error("Your session has expired. Please sign in again.");
-  }
-
-  let session;
-  try {
-    session = JSON.parse(sessionData);
-  } catch (error) {
-    throw new Error("Your faculty session is invalid. Please sign in again.");
-  }
-
-  if (
-    !String(session.facultyId || "").trim() ||
-    normalizeFacultyRole(session.role) !== "admin"
-  ) {
-    throw new Error("Only faculty administrators can view rating analytics.");
-  }
-  return {
-    type: "faculty",
-    facultyId: String(session.facultyId).trim(),
-    role: "admin"
-  };
-}
-
-function getAuthenticatedFacultyForEvaluationHistory(spreadsheet, sessionToken) {
-  const token = String(sessionToken || "").trim();
-  const sessionData = token
-    ? CacheService.getScriptCache().get("faculty-session:" + token)
-    : null;
-  if (!sessionData) {
-    throw new Error("A valid faculty session is required. Please sign in again.");
-  }
-
-  let session;
-  try {
-    session = JSON.parse(sessionData);
-  } catch (error) {
-    throw new Error("Your faculty session is invalid. Please sign in again.");
-  }
-  if (normalizeFacultyRole(session.role) === "admin") {
-    return getAuthenticatedAdmin(token);
-  }
-
-  const evaluator = getAuthenticatedEvaluator(spreadsheet, token);
-  if (evaluator.type !== "faculty") {
-    throw new Error("Only signed-in faculty can view their evaluations.");
-  }
-  return evaluator;
-}
-
-function getAuthenticatedEvaluator(spreadsheet, sessionToken) {
-  const token = String(sessionToken || "").trim();
-  if (!token) {
-    throw new Error("A valid session is required. Please sign in again.");
-  }
-
-  // Check guest cache
-  const guestData = CacheService.getScriptCache().get("guest-session:" + token);
-  if (guestData) {
-    return { type: "guest", guestId: "GUEST-001" };
-  }
-
-  // Check faculty cache
-  const facultyData = CacheService.getScriptCache().get("faculty-session:" + token);
-  if (facultyData) {
-    let parsed;
-    try {
-      parsed = JSON.parse(facultyData);
-    } catch (e) {
-      throw new Error("Your faculty session is invalid. Please sign in again.");
-    }
-    const facultySheet = getRequiredSheet(spreadsheet, "Faculty");
-    const facultyMembers = getSheetData(facultySheet);
-    const sessionFacultyId = String(parsed.facultyId || "").trim();
-    if (!sessionFacultyId) {
-      throw new Error("Your faculty session is invalid. Please sign in again.");
-    }
-    const member = facultyMembers.find(function(f) {
-      return String(f.FacultyID || "").trim() === sessionFacultyId;
-    });
-    if (!member) {
-      throw new Error("The faculty account for this session could not be found.");
-    }
-    return {
-      type: "faculty",
-      facultyId: String(member.FacultyID || "").trim(),
-      fullName: String(member.FullName || "").trim(),
-      role: normalizeFacultyRole(member.Role)
-    };
-  }
-
-  // Check student cache
-  const student = getAuthenticatedStudent(spreadsheet, token);
-  return {
-    type: "student",
-    studentId: student.studentId,
-    groupCode: student.groupCode
-  };
-}
-
-function getAuthenticatedStudent(spreadsheet, sessionToken) {
-  const token = String(sessionToken || "").trim();
-  if (!token) {
-    throw new Error("A valid student session is required. Please sign in again.");
-  }
-
-  const sessionData = CacheService.getScriptCache().get(
-    "student-session:" + token
-  );
-  if (!sessionData) {
-    throw new Error("Your student session has expired. Please sign in again.");
-  }
-
-  let session;
-  try {
-    session = JSON.parse(sessionData);
-  } catch (error) {
-    throw new Error("Your student session is invalid. Please sign in again.");
-  }
-
-  const students = getSheetData(getRequiredSheet(spreadsheet, "Students"));
-  const student = students.find(function(record) {
-    const id = String(getStudentField(record, [
-      "student no.",
-      "student number",
-      "student id",
-      "member #",
-      "member number"
-    ]) || "").trim();
-    return id === session.studentId;
-  });
-  if (!student) {
-    throw new Error("The student account for this session could not be found.");
-  }
-
-  return {
-    studentId: String(getStudentField(student, [
-      "student no.",
-      "student number",
-      "student id",
-      "member #",
-      "member number"
-    ]) || "").trim(),
-    groupCode: String(getStudentField(student, [
-      "group code",
-      "groupcode"
-    ]) || "").trim()
-  };
-}
 
 function getEvaluationHeaders(sheet) {
   const lastColumn = sheet.getLastColumn();
+
   const headers = lastColumn > 0
-    ? sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0].map(function(header) {
-      return String(header).trim();
-    })
+    ? sheet.getRange(1, 1, 1, lastColumn)
+        .getDisplayValues()[0]
+        .map(function(header) {
+          return String(header).trim();
+        })
     : [];
+
   if (
     headers.length !== EVALUATION_HEADERS.length ||
     !EVALUATION_HEADERS.every(function(header) {
-      return headers.indexOf(header) !== -1;
+      return getHeaderIndex(headers, [header]) !== -1;
     })
   ) {
     throw new Error(
@@ -1243,323 +1975,25 @@ function getEvaluationHeaders(sheet) {
       EVALUATION_HEADERS.join(", ")
     );
   }
+
   return headers;
 }
+
 
 function getEvaluationRows(sheet) {
   getEvaluationHeaders(sheet);
   return getSheetData(sheet);
 }
 
-function getRatingAnalyticsRows(spreadsheet, evaluations) {
-  const students = getSheetData(getRequiredSheet(spreadsheet, "Students"));
-  const faculty = getSheetData(getRequiredSheet(spreadsheet, "Faculty"));
-  const studentIds = new Set(students.map(function(student) {
-    return String(getStudentField(student, [
-      "student no.",
-      "student number",
-      "student id",
-      "member #",
-      "member number"
-    ]) || "").trim();
-  }).filter(Boolean));
-  const facultyIds = new Set(faculty.map(function(member) {
-    return String(getStudentField(member, ["faculty id", "facultyid"]) || "").trim();
-  }).filter(Boolean));
 
-  return evaluations.map(function(evaluation) {
-    const evaluatorId = String(evaluation.StudentID || "").trim();
-    const evaluatorType = studentIds.has(evaluatorId)
-      ? "student"
-      : facultyIds.has(evaluatorId) ? "faculty" : "unknown";
-    return {
-      EvaluationID: evaluation.EvaluationID,
-      StudentID: evaluatorId,
-      GroupCode: evaluation.GroupCode,
-      ResearchPaperRating: evaluation.ResearchPaperRating,
-      PitchVideoRating: evaluation.PitchVideoRating,
-      PosterRating: evaluation.PosterRating,
-      LogoRating: evaluation.LogoRating,
-      SubmittedAt: evaluation.SubmittedAt,
-      EvaluatorType: evaluatorType
-    };
-  });
-}
-
-function validateRating(value) {
-  if (
-    typeof value !== "number" ||
-    !isFinite(value) ||
-    Math.floor(value) !== value ||
-    value < 1 ||
-    value > 5
-  ) {
-    throw new Error("Ratings must be whole numbers from 1 to 5.");
-  }
-  return value;
-}
-
-function getEvaluationEligibility(evaluator, groupCode, evaluations, groups, spreadsheet) {
-  if (evaluator.type === "guest") {
-    return {
-      canEvaluate: false,
-      code: "guest",
-      reason: "Guests cannot evaluate projects.",
-      submitted: 0
-    };
-  }
-
-  const requestedGroupCode = normalizeGroupCode(groupCode);
-  const foundGroup = groups.some(function(candidate) {
-    return normalizeGroupCode(candidate) === requestedGroupCode;
-  });
-  const submitted = evaluations.length;
-  const existing = evaluations.some(function(evaluation) {
-    return normalizeGroupCode(evaluation.GroupCode) === requestedGroupCode;
-  });
-
-  let reason = "";
-  let code = "ok";
-  if (!foundGroup) {
-    code = "missing-group";
-    reason = "This project group could not be found.";
-  } else if (evaluator.type === "student" && normalizeGroupCode(evaluator.groupCode) === requestedGroupCode) {
-    code = "own-group";
-    reason = "You cannot evaluate your own group.";
-  } else if (evaluator.type === "faculty" && spreadsheet) {
-    const groupsSheet = getRequiredSheet(spreadsheet, "Groups");
-    const groupsData = getSheetData(groupsSheet);
-    const targetGroup = groupsData.find(function(g) {
-      return normalizeGroupCode(g.GroupCode) === requestedGroupCode;
-    });
-    if (targetGroup) {
-      const adviser = String(targetGroup.Adviser || "").trim().toLowerCase();
-      const facultyId = String(evaluator.facultyId || "").trim().toLowerCase();
-      const facultyName = String(evaluator.fullName || "").trim().toLowerCase();
-      if (adviser && (adviser === facultyId || adviser === facultyName)) {
-        code = "assigned-team";
-        reason = "Faculty advisers cannot evaluate groups assigned to them.";
-      }
-    }
-  }
-
-  if (code === "ok" && existing) {
-    code = "duplicate";
-    reason = "You have already evaluated this group.";
-  }
-
-  return {
-    canEvaluate: code === "ok",
-    code: code,
-    reason: reason,
-    ...getEvaluationStatusData(submitted)
-  };
-}
-
-function getGroupCodes(spreadsheet) {
-  return getSheetData(getRequiredSheet(spreadsheet, "Groups"))
-    .map(function(group) {
-      return String(getStudentField(group, ["group code", "groupcode"]) || "").trim();
-    })
-    .filter(function(groupCode) {
-      return Boolean(normalizeGroupCode(groupCode));
-    });
-}
-
-function getEvaluationStatusData(submitted) {
-  return {
-    submitted: submitted
-  };
-}
-
-function replaceGroupThumbnailFile(
-  folder,
-  folderId,
-  groupCode,
-  existingThumbnailUrl,
-  blob,
-  fileName
-) {
-  const existingFiles = findGroupThumbnailFiles(folder, groupCode);
-  const referencedFile = findReferencedThumbnailFile(
-    existingThumbnailUrl,
-    folderId
-  );
-  if (referencedFile && !existingFiles.some(function(candidate) {
-    return candidate.getId() === referencedFile.getId();
-  })) {
-    existingFiles.push(referencedFile);
-  }
-
-  // A new Drive file ID prevents Drive and browsers from serving the old
-  // thumbnail after its contents are replaced.
-  const file = folder.createFile(blob);
-  file.setName(fileName);
-
-  existingFiles.forEach(function(candidate) {
-    if (candidate.getId() !== file.getId() && !candidate.isTrashed()) {
-      candidate.setTrashed(true);
-    }
-  });
-
-  return file;
-}
-
-function findReferencedThumbnailFile(thumbnailUrl, folderId) {
-  if (!thumbnailUrl) return null;
-
-  let fileId;
-  try {
-    fileId = getThumbnailFileId(thumbnailUrl);
-  } catch (error) {
-    return null;
-  }
-
-  let file;
-  try {
-    file = DriveApp.getFileById(fileId);
-  } catch (error) {
-    return null;
-  }
-
-  if (file.isTrashed()) return null;
-
-  if (!thumbnailFileBelongsToFolder(file, folderId)) {
-    throw new Error("The saved thumbnail is not in the configured thumbnail folder.");
-  }
-
-  return file;
-}
-
-function findGroupThumbnailFiles(folder, groupCode) {
-  const matches = [];
-  const files = folder.getFiles();
-
-  while (files.hasNext()) {
-    const file = files.next();
-    if (!file.isTrashed() && isGroupThumbnailFileName(file.getName(), groupCode)) {
-      matches.push(file);
-    }
-  }
-
-  return matches;
-}
-
-function isGroupThumbnailFileName(name, groupCode) {
-  const upperName = String(name || "").toUpperCase();
-  const prefix = "THUMBNAIL_" + String(groupCode || "").toUpperCase();
-  if (upperName.indexOf(prefix) !== 0) return false;
-
-  const nextCharacter = upperName.charAt(prefix.length);
-  return nextCharacter === "." || nextCharacter === "_";
-}
-
-function thumbnailFileBelongsToFolder(file, folderId) {
-  const parents = file.getParents();
-  while (parents.hasNext()) {
-    if (parents.next().getId() === folderId) return true;
-  }
-  return false;
-}
-
-function getThumbnailFileId(thumbnailUrl) {
-  if (!/^https:\/\/drive\.google\.com\/(?:thumbnail|uc|file\/d\/)/.test(thumbnailUrl)) {
-    throw new Error("The saved thumbnail URL is invalid.");
-  }
-
-  const match = thumbnailUrl.match(
-    /(?:[?&]id=|\/file\/d\/)([A-Za-z0-9_-]+)/
-  );
-  if (!match) {
-    throw new Error("The saved thumbnail URL does not contain a valid file ID.");
-  }
-  return match[1];
-}
-
-
-// Get spreadsheet using Script Properties.
-function getSpreadsheet() {
-  const spreadsheetId = PropertiesService
-    .getScriptProperties()
-    .getProperty("SPREADSHEET_ID");
-
-  if (!spreadsheetId) {
-    throw new Error(
-      "SPREADSHEET_ID is missing from Script Properties."
-    );
-  }
-
-  return SpreadsheetApp.openById(spreadsheetId);
-}
-
-
-// Get required sheet and validate its existence.
-function getRequiredSheet(spreadsheet, sheetName) {
-  const sheet = spreadsheet.getSheetByName(sheetName);
-
-  if (!sheet) {
-    throw new Error(
-      sheetName + " sheet not found."
-    );
-  }
-
-  return sheet;
-}
-
-function normalizeFacultyRole(role) {
-  return String(role || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^faculty[\s_-]+/, "");
-}
-
-
-// Convert spreadsheet rows into JavaScript objects.
-function getSheetData(sheet) {
-  if (!sheet) {
-    throw new Error("Cannot read data from a missing sheet.");
-  }
-
-  const data = sheet.getDataRange().getValues();
-
-  if (data.length <= 1) {
-    return [];
-  }
-
-  const headers = data.shift().map(function(header) {
-    return String(header).trim();
-  });
-
-  return data
-    .filter(function(row) {
-      return row.some(function(cell) {
-        return cell !== "" && cell !== null;
-      });
-    })
-    .map(function(row) {
-      const obj = {};
-
-      headers.forEach(function(header, index) {
-        obj[header] = row[index];
-      });
-  
-      return obj;
-    });
-}
-
-
-// Return JSON response.
-function responseJSON(data) {
-  return ContentService
-    .createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-// evaluation id generation
 function generateEvaluationId(sheet) {
   const lastRow = sheet.getLastRow();
-  const idColumn = getEvaluationHeaders(sheet).indexOf("EvaluationID") + 1;
 
-  // First evaluation
+  const idColumn = getHeaderIndex(
+    getEvaluationHeaders(sheet),
+    ["evaluation id"]
+  ) + 1;
+
   if (lastRow <= 1) {
     return "EV-0001";
   }
@@ -1583,24 +2017,401 @@ function generateEvaluationId(sheet) {
     }
   });
 
-  const nextNumber = highestNumber + 1;
-
-  return "EV-" + String(nextNumber).padStart(4, "0");
+  return "EV-" + String(highestNumber + 1).padStart(4, "0");
 }
+
+
+function validateRating(value) {
+  if (
+    typeof value !== "number" ||
+    !isFinite(value) ||
+    Math.floor(value) !== value ||
+    value < 1 ||
+    value > 5
+  ) {
+    throw new Error(
+      "Ratings must be whole numbers from 1 to 5."
+    );
+  }
+
+  return value;
+}
+
+function validateCriterionRating(value, hasSubmission, label) {
+  if (!hasSubmission) {
+    if (value !== undefined && value !== null && value !== "") {
+      throw new Error(label + " has not been submitted and cannot be rated.");
+    }
+    return "";
+  }
+
+  return validateRating(value);
+}
+
+function hasValidResourceUrl(value) {
+  if (typeof value !== "string") return false;
+  const resource = value.trim();
+  if (!resource) return false;
+
+  const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(resource);
+  const looksLikeWebHost =
+    /^(?:www\.)?[a-z\d](?:[a-z\d.-]*[a-z\d])?\.[a-z]{2,}(?::\d+)?(?:[/?#]|$)/i.test(resource);
+  if (!hasScheme && !looksLikeWebHost) return false;
+
+  const url = hasScheme ? resource : "https://" + resource;
+  const match = url.match(/^(https?):\/\/([^/?#\s]+)(?:[/?#]|$)/i);
+  return Boolean(match && match[2] && match[2].indexOf("@") === -1);
+}
+
+
+function getEvaluationStatusData(submitted) {
+  return {
+    submitted: submitted
+  };
+}
+
+
+function getRatingAnalyticsRows(spreadsheet, evaluations) {
+  const students = getSheetData(
+    getRequiredSheet(spreadsheet, "Students")
+  );
+
+  const faculty = getSheetData(
+    getRequiredSheet(spreadsheet, "Faculty")
+  );
+
+  const studentIds = new Set(
+    students.map(function(student) {
+      return String(getStudentField(student, [
+        "student id",
+        "student no.",
+        "student number"
+      ]) || "").trim();
+    }).filter(Boolean)
+  );
+
+  const facultyIds = new Set(
+    faculty.map(function(member) {
+      return String(getStudentField(member, [
+        "faculty id",
+        "facultyid"
+      ]) || "").trim();
+    }).filter(Boolean)
+  );
+
+  return evaluations.map(function(evaluation) {
+    const evaluatorId = String(
+      getStudentField(evaluation, ["student id"]) || ""
+    ).trim();
+
+    const evaluatorType = studentIds.has(evaluatorId)
+      ? "student"
+      : facultyIds.has(evaluatorId)
+        ? "faculty"
+        : "unknown";
+
+    return {
+      EvaluationID: getStudentField(evaluation, ["evaluation id"]),
+      StudentID: evaluatorId,
+      GroupCode: getStudentField(evaluation, ["group code"]),
+      ResearchPaperRating: getStudentField(
+        evaluation,
+        ["research paper rating"]
+      ),
+      PitchVideoRating: getStudentField(
+        evaluation,
+        ["pitch video rating"]
+      ),
+      PosterRating: getStudentField(
+        evaluation,
+        ["poster rating"]
+      ),
+      LogoRating: getStudentField(
+        evaluation,
+        ["logo rating"]
+      ),
+      SubmittedAt: getStudentField(
+        evaluation,
+        ["submitted at"]
+      ),
+      EvaluatorType: evaluatorType
+    };
+  });
+}
+
+
+function getEvaluationEligibility(
+  evaluator,
+  groupCode,
+  evaluations,
+  groups,
+  spreadsheet
+) {
+  if (evaluator.type === "guest") {
+    return {
+      canEvaluate: false,
+      code: "guest",
+      reason: "Guests cannot evaluate projects.",
+      submitted: 0
+    };
+  }
+
+  const requestedGroupCode = normalizeGroupCode(groupCode);
+
+  const foundGroup = groups.some(function(candidate) {
+    return normalizeGroupCode(candidate) === requestedGroupCode;
+  });
+
+  const submitted = evaluations.length;
+
+  const existing = evaluations.some(function(evaluation) {
+    return normalizeGroupCode(
+      getStudentField(evaluation, ["group code"])
+    ) === requestedGroupCode;
+  });
+
+  let reason = "";
+  let code = "ok";
+
+  if (!foundGroup) {
+    code = "missing-group";
+    reason = "This project group could not be found.";
+
+  } else if (
+    evaluator.type === "student" &&
+    normalizeGroupCode(evaluator.groupCode) === requestedGroupCode
+  ) {
+    code = "own-group";
+    reason = "You cannot evaluate your own group.";
+
+  } else if (
+    evaluator.type === "faculty" &&
+    spreadsheet
+  ) {
+    const groupsSheet = getRequiredSheet(
+      spreadsheet,
+      "Groups"
+    );
+
+    const groupsData = getSheetData(groupsSheet);
+
+    const targetGroup = groupsData.find(function(group) {
+      return normalizeGroupCode(
+        getStudentField(group, ["group code", "groupcode"])
+      ) === requestedGroupCode;
+    });
+
+    if (targetGroup) {
+      const adviser = String(
+        getStudentField(targetGroup, ["adviser"]) || ""
+      ).trim().toLowerCase();
+
+      const facultyId = String(
+        evaluator.facultyId || ""
+      ).trim().toLowerCase();
+
+      const facultyName = String(
+        evaluator.fullName || ""
+      ).trim().toLowerCase();
+
+      if (
+        adviser &&
+        (adviser === facultyId || adviser === facultyName)
+      ) {
+        code = "assigned-team";
+        reason = "Faculty advisers cannot evaluate groups assigned to them.";
+      }
+    }
+  }
+
+  if (code === "ok" && existing) {
+    code = "duplicate";
+    reason = "You have already evaluated this group.";
+  }
+
+  return {
+    canEvaluate: code === "ok",
+    code: code,
+    reason: reason,
+    ...getEvaluationStatusData(submitted)
+  };
+}
+
+
+// =====================================================
+// 8. THUMBNAIL / GOOGLE DRIVE HELPERS
+// =====================================================
+
+function replaceGroupThumbnailFile(
+  folder,
+  folderId,
+  groupCode,
+  existingThumbnailUrl,
+  blob,
+  fileName
+) {
+  const existingFiles = findGroupThumbnailFiles(
+    folder,
+    groupCode
+  );
+
+  const referencedFile = findReferencedThumbnailFile(
+    existingThumbnailUrl,
+    folderId
+  );
+
+  if (
+    referencedFile &&
+    !existingFiles.some(function(candidate) {
+      return candidate.getId() === referencedFile.getId();
+    })
+  ) {
+    existingFiles.push(referencedFile);
+  }
+
+  const file = folder.createFile(blob);
+  file.setName(fileName);
+
+  existingFiles.forEach(function(candidate) {
+    if (
+      candidate.getId() !== file.getId() &&
+      !candidate.isTrashed()
+    ) {
+      candidate.setTrashed(true);
+    }
+  });
+
+  return file;
+}
+
+
+function findReferencedThumbnailFile(thumbnailUrl, folderId) {
+  if (!thumbnailUrl) return null;
+
+  let fileId;
+
+  try {
+    fileId = getThumbnailFileId(thumbnailUrl);
+  } catch (error) {
+    return null;
+  }
+
+  let file;
+
+  try {
+    file = DriveApp.getFileById(fileId);
+  } catch (error) {
+    return null;
+  }
+
+  if (file.isTrashed()) return null;
+
+  if (!thumbnailFileBelongsToFolder(file, folderId)) {
+    throw new Error(
+      "The saved thumbnail is not in the configured thumbnail folder."
+    );
+  }
+
+  return file;
+}
+
+
+function findGroupThumbnailFiles(folder, groupCode) {
+  const matches = [];
+  const files = folder.getFiles();
+
+  while (files.hasNext()) {
+    const file = files.next();
+
+    if (
+      !file.isTrashed() &&
+      isGroupThumbnailFileName(file.getName(), groupCode)
+    ) {
+      matches.push(file);
+    }
+  }
+
+  return matches;
+}
+
+
+function isGroupThumbnailFileName(name, groupCode) {
+  const upperName = String(name || "").toUpperCase();
+
+  const prefix =
+    "THUMBNAIL_" + String(groupCode || "").toUpperCase();
+
+  if (upperName.indexOf(prefix) !== 0) return false;
+
+  const nextCharacter = upperName.charAt(prefix.length);
+
+  return nextCharacter === "." || nextCharacter === "_";
+}
+
+
+function thumbnailFileBelongsToFolder(file, folderId) {
+  const parents = file.getParents();
+
+  while (parents.hasNext()) {
+    if (parents.next().getId() === folderId) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+function getThumbnailFileId(thumbnailUrl) {
+  if (
+    !/^https:\/\/drive\.google\.com\/(?:thumbnail|uc|file\/d\/)/.test(
+      thumbnailUrl
+    )
+  ) {
+    throw new Error("The saved thumbnail URL is invalid.");
+  }
+
+  const match = thumbnailUrl.match(
+    /(?:[?&]id=|\/file\/d\/)([A-Za-z0-9_-]+)/
+  );
+
+  if (!match) {
+    throw new Error(
+      "The saved thumbnail URL does not contain a valid file ID."
+    );
+  }
+
+  return match[1];
+}
+
+
+// =====================================================
+// 9. AUTHORIZATION TEST FUNCTIONS
+// =====================================================
 
 function authorizeDriveAccess() {
   const folder = DriveApp.getFolderById(
-    "1R2tRr5_00JfIg3aukcdK0GcPBw8x-RFv"
+    PropertiesService.getScriptProperties()
+      .getProperty("THUMBNAIL_FOLDER_ID")
   );
 
   Logger.log(folder.getName());
 }
+
+
 function authorizeDriveWriteAccess() {
-  const folderId = "1R2tRr5_00JfIg3aukcdK0GcPBw8x-RFv";
+  const folderId = PropertiesService
+    .getScriptProperties()
+    .getProperty("THUMBNAIL_FOLDER_ID");
+
+  if (!folderId) {
+    throw new Error(
+      "THUMBNAIL_FOLDER_ID is missing from Script Properties."
+    );
+  }
 
   const folder = DriveApp.getFolderById(folderId);
 
-  // Create a temporary file to trigger Drive write authorization.
   const testFile = folder.createFile(
     "drive-authorization-test.txt",
     "Temporary authorization test."
@@ -1608,15 +2419,17 @@ function authorizeDriveWriteAccess() {
 
   Logger.log("File created: " + testFile.getName());
 
-  // Move the temporary file to Trash.
   testFile.setTrashed(true);
 
   Logger.log("Drive write authorization successful.");
 }
+
+
 function testEditorExecution() {
   Logger.log("Apps Script editor is working.");
   return "SUCCESS";
 }
+
 
 function testDriveRootWrite() {
   const file = DriveApp.createFile(
@@ -1631,10 +2444,14 @@ function testDriveRootWrite() {
   Logger.log("Test successful. File moved to trash.");
 }
 
+
 function authorizeExternalRequest() {
-  const response = UrlFetchApp.fetch("https://www.google.com", {
-    muteHttpExceptions: true
-  });
+  const response = UrlFetchApp.fetch(
+    "https://www.google.com",
+    {
+      muteHttpExceptions: true
+    }
+  );
 
   Logger.log("External request authorization successful.");
   Logger.log("Response code: " + response.getResponseCode());

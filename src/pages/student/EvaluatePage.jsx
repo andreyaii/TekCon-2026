@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Lock } from 'lucide-react';
 import StarRating from '../../components/StarRating';
@@ -12,7 +12,7 @@ import { invalidateAsyncCache, useAsync } from '../../hooks/useAsync';
 import { getProjectById } from '../../services/projectService';
 import { getEligibility, getEvaluationStatus, submitEvaluation } from '../../services/evaluationService';
 import { getEvaluationCriteria } from '../../services/settingsService';
-import { calcOverall, formatScore } from '../../utils/ratings';
+import { hasCriterionSubmission } from '../../utils/evaluationResources';
 import { isStudent } from '../../utils/roles';
 
 export default function EvaluatePage() {
@@ -38,8 +38,6 @@ export default function EvaluatePage() {
     const eligibility = await getEligibility(user.id, project.groupId);
     return { project, criteria, eligibility, status: eligibility };
   }, [projectId, user.id], `student-evaluate:${user.id}:${projectId}`);
-
-  const overall = useMemo(() => calcOverall(ratings), [ratings]);
 
   if (loading) return <Loading />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
@@ -80,7 +78,11 @@ export default function EvaluatePage() {
     );
   }
 
-  const complete = criteria.every((c) => Number.isInteger(ratings[c.id]) && ratings[c.id] >= 1 && ratings[c.id] <= 5);
+  const availableCriteria = criteria.filter((criterion) => hasCriterionSubmission(project, criterion.id));
+  const complete = availableCriteria.length > 0 && criteria.every((criterion) => (
+    !hasCriterionSubmission(project, criterion.id)
+    || Number.isInteger(ratings[criterion.id]) && ratings[criterion.id] >= 1 && ratings[criterion.id] <= 5
+  ));
 
   const submit = async () => {
     setBusy(true);
@@ -121,22 +123,22 @@ export default function EvaluatePage() {
       <header className="border-b border-line pb-4">
         <p className="mb-1 text-xs font-semibold text-primary">Project evaluation · {project.group?.groupName || 'Group'}</p>
         <h1 className="text-2xl font-bold leading-snug">{project.title}</h1>
-        <p className="mt-1 text-sm text-muted">Rate each criterion from 1 to 5. All criteria are required; comments are optional.</p>
+        <p className="mt-1 text-sm text-muted">Rate each submitted criterion from 1 to 5. Criteria without a submission are disabled; comments are optional.</p>
       </header>
       {studentUser && <EvaluationCounter status={status} />}
 
       <form className="card p-5 sm:p-7" onSubmit={(e) => { e.preventDefault(); if (complete) setConfirming(true); }}>
-        <p className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">Rate the research paper, pitch video, poster, and logo. Each criterion has equal weight.</p>
+        <p className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">Rate submitted research papers, pitch videos, posters, and logos. Each available criterion has equal weight.</p>
 
         <div className="divide-y divide-line">
         {criteria.map((c, index) => (
-          <fieldset key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-4 first:pt-0 last:pb-2">
+          <fieldset key={c.id} disabled={busy || !hasCriterionSubmission(project, c.id)} aria-disabled={!hasCriterionSubmission(project, c.id)} className={`flex flex-wrap items-center justify-between gap-3 py-4 first:pt-0 last:pb-2 ${!hasCriterionSubmission(project, c.id) ? 'opacity-50' : ''}`}>
             <legend className="sr-only">{c.label}</legend>
             <div className="flex min-w-0 flex-1 items-start gap-3">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface text-xs font-semibold text-muted">{index + 1}</span>
-              <div><p className="text-sm font-bold">{c.label}</p><p className="mt-0.5 text-xs leading-5 text-muted">{c.description}</p></div>
+              <div><p className="text-sm font-bold">{c.label}</p><p className="mt-0.5 text-xs leading-5 text-muted">{hasCriterionSubmission(project, c.id) ? c.description : 'Not submitted — this criterion cannot be rated.'}</p></div>
             </div>
-            <StarRating value={ratings[c.id] || 0} label={c.label} onChange={!busy ? (v) => setRatings((r) => ({ ...r, [c.id]: v })) : undefined} />
+            <StarRating value={ratings[c.id] || 0} label={c.label} disabled={busy || !hasCriterionSubmission(project, c.id)} onChange={(v) => setRatings((r) => ({ ...r, [c.id]: v }))} />
           </fieldset>
         ))}
         </div>
@@ -147,12 +149,7 @@ export default function EvaluatePage() {
           <p className="mt-1 text-right text-xs text-muted">{comments.length}/{settings.commentMaxLength}</p>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-line py-4">
-          <div><p className="text-sm font-bold">Overall rating</p><p className="text-xs text-muted">Equal-weight average</p></div>
-          <p className="text-2xl font-bold text-primary">{complete ? formatScore(overall) : '–'} <span className="text-sm font-medium text-muted">/ 5</span></p>
-        </div>
-
-        {!complete && <p className="text-sm text-muted">Rate every criterion to enable submission.</p>}
+        {!complete && <p className="text-sm text-muted">{availableCriteria.length ? 'Rate every submitted criterion to enable submission.' : 'This project has no submitted resources to evaluate.'}</p>}
         <div className="flex flex-col-reverse justify-end gap-2 border-t border-line pt-4 sm:flex-row">
           <Link to={back} className="btn-secondary">Cancel</Link>
           <button className="btn-primary" disabled={!complete || busy}>{busy ? 'Submitting…' : 'Submit Evaluation'}</button>

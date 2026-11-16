@@ -221,6 +221,26 @@ html[data-theme='dark'] :focus-visible {
   filter: drop-shadow(0 1px 1.5px rgb(32 41 56 / 20%));
 }
 
+.skeleton-shimmer {
+  background: linear-gradient(
+    100deg,
+    rgb(var(--color-line) / 45%) 20%,
+    rgb(var(--color-line) / 80%) 40%,
+    rgb(var(--color-line) / 45%) 60%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+html[data-theme='dark'] .skeleton-shimmer {
+  background: linear-gradient(100deg, #1d1d25 20%, #30303a 40%, #1d1d25 60%);
+  background-size: 200% 100%;
+}
+
+@keyframes skeleton-shimmer {
+  to { background-position: -200% 0; }
+}
+
 @keyframes techcon-flight-orbit {
   to { transform: rotate(360deg); }
 }
@@ -248,6 +268,7 @@ html[data-theme='dark'] :focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .skeleton-shimmer { animation: none; }
 }
 
 @keyframes techcon-drift-wide {

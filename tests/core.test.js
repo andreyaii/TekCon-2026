@@ -3,10 +3,12 @@ import { beforeEach, test } from 'node:test';
 import { initialSettings, evaluationCriteria } from '../src/data/settings.js';
 import { checkEligibility } from '../src/services/evaluationAssignment.js';
 import { getAdminRatingAnalytics, getAggregates, getEligibility, getEvaluationStatus, getFacultyEvaluationData, getStudentEvaluationData, submitEvaluation } from '../src/services/evaluationService.js';
-import { deleteProjectThumbnail, getProjects } from '../src/services/projectService.js';
+import { getProjects, updateGroupDescription } from '../src/services/projectService.js';
 import { getSettings } from '../src/services/settingsService.js';
 import { calcOverall } from '../src/utils/ratings.js';
 import { getProjectLogoUrl } from '../src/utils/projectLogo.js';
+import { hasCriterionSubmission } from '../src/utils/evaluationResources.js';
+import { getSafeResourceUrl } from '../src/utils/resourceUrl.js';
 import { isProjectAssignedToFaculty } from '../src/utils/faculty.js';
 import { isGuest, isFaculty, isStudent, isAdmin, canViewRatings, canToggleRatings, homePathFor, basePathFor, ratingsHiddenReason } from '../src/utils/roles.js';
 import { guestNav } from '../src/config/navigation.js';
@@ -32,6 +34,35 @@ test('project logo URLs preserve the working Drive thumbnail URL', () => {
     'https://drive.google.com/thumbnail?id=logo-file&sz=w1200&v=123',
   );
   assert.equal(getProjectLogoUrl({ imageUrl: 'javascript:alert(1)' }), '');
+  assert.equal(
+    getProjectLogoUrl({ thumbnail: 'https://drive.google.com/file/d/drive-file/view?usp=sharing' }),
+    'https://drive.google.com/thumbnail?id=drive-file&sz=w1200',
+  );
+  assert.equal(
+    getProjectLogoUrl({ thumbnail: 'https://example.com/images/project.png' }),
+    'https://example.com/images/project.png',
+  );
+});
+
+test('project resource links accept absolute and schemeless web URLs safely', () => {
+  assert.equal(getSafeResourceUrl('https://example.com/paper.pdf'), 'https://example.com/paper.pdf');
+  assert.equal(getSafeResourceUrl(' www.example.com/paper.pdf '), 'https://www.example.com/paper.pdf');
+  assert.equal(getSafeResourceUrl('drive.google.com/file/d/example/view'), 'https://drive.google.com/file/d/example/view');
+  assert.equal(getSafeResourceUrl('javascript:alert(1)'), null);
+  assert.equal(getSafeResourceUrl('not a URL'), null);
+});
+
+test('evaluation criteria are available only when their resource link is valid', () => {
+  const project = {
+    researchPaperLink: 'https://example.com/paper.pdf',
+    pitchVideoLink: '',
+    documentationLink: 'javascript:alert(1)',
+    thumbnail: 'https://example.com/logo.png',
+  };
+  assert.equal(hasCriterionSubmission(project, 'c1'), true);
+  assert.equal(hasCriterionSubmission(project, 'c2'), false);
+  assert.equal(hasCriterionSubmission(project, 'c3'), false);
+  assert.equal(hasCriterionSubmission(project, 'c4'), true);
 });
 
 globalThis.window = {
@@ -51,6 +82,10 @@ beforeEach(() => {
     groupCode: `g${index + 1}`,
     title: `Group ${String(index + 1).padStart(2, '0')}`,
     tag: 'Test',
+    researchPaperLink: 'https://example.com/paper.pdf',
+    pitchVideoLink: 'https://example.com/pitch.mp4',
+    documentationLink: 'https://example.com/poster.pdf',
+    thumbnail: 'https://example.com/logo.png',
   }));
   apiSettings = { EvaluationAssignmentMethod: 'free-select', CommentMaxLength: '500' };
   apiFailure = false;
@@ -90,9 +125,10 @@ beforeEach(() => {
           .map((evaluation) => ({ ...evaluation, EvaluatorType: 'student' })),
       });
     }
-    if (action === 'deleteThumbnail') {
+    if (action === 'updateGroupDescription') {
       assert.equal(payload.sessionToken, 'test-session');
-      return response({ success: true, thumbnail: null });
+      assert.equal(Object.hasOwn(payload, 'groupCode'), false);
+      return response({ success: true, description: payload.description });
     }
     if (action === 'getStudentEvaluationData') {
       return response({
@@ -150,8 +186,8 @@ test('student evaluation submission uses the authenticated API and mapped sheet 
   currentStudent = { id: 'STD-104', accountType: 'Student', groupId: 'GROUP-A' };
   entries.set('techcon:session', JSON.stringify({ user: currentStudent, sessionToken: 'test-session' }));
   apiGroups = [
-    { groupCode: 'GROUP-A', title: 'Own Group', tag: 'Test' },
-    { groupCode: 'GROUP-B', title: 'Other Group', tag: 'Test' },
+    { groupCode: 'GROUP-A', title: 'Own Group', tag: 'Test', researchPaperLink: 'https://example.com/paper.pdf', pitchVideoLink: 'https://example.com/pitch.mp4', documentationLink: 'https://example.com/poster.pdf', thumbnail: 'https://example.com/logo.png' },
+    { groupCode: 'GROUP-B', title: 'Other Group', tag: 'Test', researchPaperLink: 'https://example.com/paper.pdf', pitchVideoLink: 'https://example.com/pitch.mp4', documentationLink: 'https://example.com/poster.pdf', thumbnail: 'https://example.com/logo.png' },
   ];
 
   const eligibility = await getEligibility(currentStudent.id, 'GROUP-B');
@@ -355,10 +391,17 @@ test('Research Paper links from Sheets are exposed under the renamed resource pr
   assert.equal(project.researchPaperLink, 'https://example.com/research-paper.pdf');
 });
 
-test('thumbnail deletion uses the authenticated API action', async () => {
-  await deleteProjectThumbnail();
+test('group description updates use the authenticated API and trim the submitted text', async () => {
+  const description = await updateGroupDescription('  A clear description  ');
 
-  assert.equal(requestCounts.get('deleteThumbnail'), 1);
+  assert.equal(description, 'A clear description');
+  assert.equal(requestCounts.get('updateGroupDescription'), 1);
+});
+
+test('group description updates validate text and length before sending', async () => {
+  await assert.rejects(updateGroupDescription(null), /must be text/);
+  await assert.rejects(updateGroupDescription('x'.repeat(2001)), /2000 characters or fewer/);
+  assert.equal(requestCounts.get('updateGroupDescription') || 0, 0);
 });
 
 test('forced project refresh bypasses the cached project response', async () => {
@@ -422,6 +465,10 @@ test('eligibility blocks self, duplicate, and missing groups', async () => {
     });
   }
   apiGroups.push({ groupCode: 'g7', title: 'Additional project', tag: 'Test' });
+  apiGroups[apiGroups.length - 1].researchPaperLink = 'https://example.com/paper.pdf';
+  apiGroups[apiGroups.length - 1].pitchVideoLink = 'https://example.com/pitch.mp4';
+  apiGroups[apiGroups.length - 1].documentationLink = 'https://example.com/poster.pdf';
+  apiGroups[apiGroups.length - 1].thumbnail = 'https://example.com/logo.png';
   assert.equal((await getEligibility('s1', 'g7')).canEvaluate, true);
   await submitEvaluation({ evaluatorId: 's1', evaluatedGroupId: 'g7', ratings: validRatings });
   assert.equal((await getEvaluationStatus('s1')).submitted, 6);
@@ -445,6 +492,48 @@ test('submission validates ratings and comment length before calling the API', a
     submitEvaluation({ evaluatorId: 's1', evaluatedGroupId: 'g4', ratings: validRatings, comments: 'four' }),
     /3 characters or fewer/,
   );
+});
+
+test('submission omits criteria without resources and rejects attempts to rate them', async () => {
+  apiGroups = Array.from({ length: 8 }, (_, index) => ({
+    groupCode: `g${index + 1}`,
+    title: `Group ${String(index + 1).padStart(2, '0')}`,
+    tag: 'Test',
+    researchPaperLink: 'https://example.com/paper.pdf',
+    pitchVideoLink: 'https://example.com/pitch.mp4',
+    documentationLink: 'https://example.com/poster.pdf',
+    thumbnail: 'https://example.com/logo.png',
+  }));
+  apiGroups[3].researchPaperLink = '';
+  apiGroups[3].thumbnail = '';
+  await getProjects({ refresh: true });
+  const previousEvaluationCount = apiEvaluations.length;
+  await assert.rejects(
+    submitEvaluation({
+      evaluatorId: 's1',
+      evaluatedGroupId: 'g4',
+      ratings: { c1: 5, c2: 4, c3: 3, c4: null },
+    }),
+    /Research Paper has not been submitted/,
+  );
+  assert.equal(apiEvaluations.length, previousEvaluationCount);
+
+  const result = await submitEvaluation({
+    evaluatorId: 's1',
+    evaluatedGroupId: 'g4',
+    ratings: { c1: null, c2: 4, c3: 3, c4: null },
+  });
+  assert.equal(result.ratings.c1, null);
+  assert.equal(result.ratings.c2, 4);
+  assert.equal(result.ratings.c4, null);
+  assert.equal(apiEvaluations.at(-1).ResearchPaperRating, null);
+  assert.equal(apiEvaluations.at(-1).LogoRating, null);
+  const history = await getStudentEvaluationData('s1');
+  assert.equal(history.evaluations.at(-1).ratings.c1, null);
+  assert.equal(history.evaluations.at(-1).ratings.c4, null);
+  apiGroups[3].researchPaperLink = 'https://example.com/paper.pdf';
+  apiGroups[3].thumbnail = 'https://example.com/logo.png';
+  await getProjects({ refresh: true });
 });
 
 test('simultaneous submissions are guarded in the client and the backend remains authoritative', async () => {

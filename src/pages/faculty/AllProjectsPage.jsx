@@ -1,6 +1,7 @@
 import PageHeader from '../../components/PageHeader';
 import ProjectBrowser from '../../components/ProjectBrowser';
-import { Loading, ErrorState } from '../../components/Feedback';
+import { ErrorState } from '../../components/Feedback';
+import { AllProjectsSkeleton } from '../../components/skeletons/PageSkeletons';
 import { useAuth } from '../../context/AuthContext';
 import { useAsync } from '../../hooks/useAsync';
 import { getProjects } from '../../services/projectService';
@@ -21,13 +22,14 @@ export default function AllProjectsPage() {
     `${guest ? 'guest' : 'faculty'}-all-projects:${user?.id}`,
   );
 
-  if (loading) return <Loading />;
+  if (loading) return <AllProjectsSkeleton />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
 
   return (
     <>
       <PageHeader title="All Projects" subtitle="All registered groups and their projects." />
       <ProjectBrowser projects={data.projects} aggregates={data.aggregates}
+        paginate={!guest}
         fullCardLink
         linkFor={(p) => guest ? `/guest/projects/${p.id}` : `/faculty/projects/${p.id}`}
         badgeFor={(p) => {

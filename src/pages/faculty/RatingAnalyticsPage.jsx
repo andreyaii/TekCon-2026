@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
-import { ErrorState, Loading } from '../../components/Feedback';
+import { ErrorState } from '../../components/Feedback';
+import { RatingAnalyticsSkeleton } from '../../components/skeletons/PageSkeletons';
 import { useAuth } from '../../context/AuthContext';
 import { useAsync } from '../../hooks/useAsync';
 import { getAdminRatingAnalytics } from '../../services/evaluationService';
@@ -27,7 +28,7 @@ export default function RatingAnalyticsPage() {
     `rating-analytics:${user?.id}`,
   );
 
-  if (loading) return <Loading />;
+  if (loading) return <RatingAnalyticsSkeleton />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
 
   const summary = summarizeRatings(data.evaluations, data.projects, { source, categoryId, groupId });

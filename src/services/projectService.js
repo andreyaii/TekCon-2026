@@ -90,81 +90,28 @@ export async function getCategories() {
 }
 
 
-/**
- * Converts an image File into a Base64 data URL.
- */
-function convertImageToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(
-      new Error('Failed to read the selected image.')
-    );
-
-    reader.readAsDataURL(file);
-  });
-}
-
-/**
- * Uploads the authenticated student's project thumbnail.
- */
-export async function uploadProjectThumbnail(file) {
-  if (!file) {
-    throw new Error('Please select an image first.');
+export async function updateGroupDescription(description) {
+  if (typeof description !== 'string') {
+    throw new Error('The group description must be text.');
+  }
+  const normalizedDescription = description.trim();
+  if (normalizedDescription.length > 2000) {
+    throw new Error('The group description must be 2000 characters or fewer.');
   }
 
-  const allowedTypes = [
-    'image/jpeg',
-    'image/png',
-    'image/webp'
-  ];
-
-  if (!allowedTypes.includes(file.type)) {
-    throw new Error('Only JPG, PNG, and WebP images are allowed.');
-  }
-
-  const MAX_SIZE = 2 * 1024 * 1024;
-
-  if (file.size > MAX_SIZE) {
-    throw new Error('Image size must not exceed 2 MB.');
-  }
-
-  const imageData = await convertImageToBase64(file);
-
-  const response = await request('uploadThumbnail', {
+  const response = await request('updateGroupDescription', {
     method: 'POST',
     authenticated: true,
-    body: {
-      imageData
-    }
+    body: { description: normalizedDescription },
   });
-
-  if (!response.thumbnail) {
-    throw new Error('The server did not return the uploaded thumbnail URL.');
-  }
-
-  // Invalidate cached project data after successful upload.
-  cachedProjects = undefined;
-  projectsCachedAt = 0;
-  projectsRevision += 1;
-  projectsRequest = null;
-
-  return response.thumbnail;
-}
-
-export async function deleteProjectThumbnail() {
-  const response = await request('deleteThumbnail', {
-    method: 'POST',
-    authenticated: true,
-  });
-
-  if (response.thumbnail !== null) {
-    throw new Error('The server did not confirm thumbnail deletion.');
+  if (response.description !== normalizedDescription) {
+    throw new Error('The server did not confirm the updated group description.');
   }
 
   cachedProjects = undefined;
   projectsCachedAt = 0;
   projectsRevision += 1;
   projectsRequest = null;
+
+  return response.description;
 }

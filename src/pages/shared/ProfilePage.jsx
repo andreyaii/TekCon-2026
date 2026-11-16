@@ -1,5 +1,6 @@
 import PageHeader from '../../components/PageHeader';
-import { Loading, ErrorState } from '../../components/Feedback';
+import { ErrorState } from '../../components/Feedback';
+import { ProfileSkeleton } from '../../components/skeletons/PageSkeletons';
 import { useAuth } from '../../context/AuthContext';
 import { useAsync } from '../../hooks/useAsync';
 import { getAssignedGroupIds } from '../../services/facultyService';
@@ -23,7 +24,7 @@ export default function ProfilePage() {
     `profile:${user.id}`,
   );
 
-  if (loading) return <Loading />;
+  if (loading) return <ProfileSkeleton />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
 
   return (

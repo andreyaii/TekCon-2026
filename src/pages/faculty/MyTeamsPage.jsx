@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { Users } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import GroupProjectPanel from '../../components/GroupProjectPanel';
-import { Loading, ErrorState, EmptyState } from '../../components/Feedback';
+import Modal from '../../components/Modal';
+import { ErrorState, EmptyState } from '../../components/Feedback';
+import { MyTeamsSkeleton } from '../../components/skeletons/PageSkeletons';
 import { useAuth } from '../../context/AuthContext';
 import { useAsync } from '../../hooks/useAsync';
 import { getProjects } from '../../services/projectService';
@@ -10,13 +13,14 @@ import { getAggregates } from '../../services/evaluationService';
 
 export default function MyTeamsPage() {
   const { user } = useAuth();
+  const [logoPreview, setLogoPreview] = useState(null);
   const { data, loading, error, reload } = useAsync(async (force) => {
     const groupIds = await getAssignedGroupIds(user.id);
     const [projects, aggregates] = await Promise.all([getProjects({ groupIds, refresh: force }), getAggregates(user)]);
     return { projects, aggregates };
   }, [user.id], `faculty-my-teams:${user.id}`);
 
-  if (loading) return <Loading />;
+  if (loading) return <MyTeamsSkeleton />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
 
   return (
@@ -28,8 +32,21 @@ export default function MyTeamsPage() {
       <div className="space-y-6">
         {data.projects.length === 0
           ? <EmptyState title="No assigned teams" message="You have no groups assigned yet." />
-          : data.projects.map((p) => <GroupProjectPanel key={p.id} project={p} aggregate={data.aggregates[p.groupId]} detailsTo={`/faculty/projects/${p.id}`} />)}
+          : data.projects.map((p) => (
+            <GroupProjectPanel
+              key={p.id}
+              project={p}
+              aggregate={data.aggregates[p.groupId]}
+              detailsTo={`/faculty/projects/${p.id}`}
+              onLogoClick={(url) => setLogoPreview({ url, title: p.title })}
+            />
+          ))}
       </div>
+      <Modal open={Boolean(logoPreview)} title={`${logoPreview?.title || 'Project'} logo`} onClose={() => setLogoPreview(null)} size="wide">
+        <div className="flex max-h-[70vh] min-h-48 items-center justify-center rounded-xl bg-[#0D0D12] p-4">
+          <img src={logoPreview?.url} alt={`${logoPreview?.title || 'Project'} logo`} className="max-h-[65vh] max-w-full object-contain" />
+        </div>
+      </Modal>
     </>
   );
 }

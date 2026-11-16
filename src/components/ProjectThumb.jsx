@@ -1,11 +1,21 @@
+import { useState } from 'react';
 import { FolderKanban } from 'lucide-react';
+import { getProjectLogoUrl } from '../utils/projectLogo';
 
 export default function ProjectThumb({ project, className = '' }) {
-  const imageUrl = project.imageUrl || project.thumbnail;
+  const imageUrl = getProjectLogoUrl(project);
+  const [failedImageUrl, setFailedImageUrl] = useState('');
+
   return (
     <div className={`project-thumb-placeholder relative aspect-video w-full overflow-hidden bg-primary-light ${className}`}>
-      {imageUrl ? (
-        <img src={imageUrl} alt={project.title} className="h-full w-full object-cover" loading="lazy" />
+      {imageUrl && failedImageUrl !== imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={project.title}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setFailedImageUrl(imageUrl)}
+        />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-primary/50">
           <FolderKanban className="h-10 w-10" aria-hidden="true" />

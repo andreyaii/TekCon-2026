@@ -6,6 +6,7 @@ import { getSettings } from './settingsService.js';
 import { getCurrentUser } from './authService.js';
 import { isAdmin, isFaculty, isGuest, isStudent } from '../utils/roles.js';
 import { getProjects } from './projectService.js';
+import { hasCriterionSubmission } from '../utils/evaluationResources.js';
 
 const submissionsInProgress = new Set();
 
@@ -82,8 +83,7 @@ function parseEvaluationRow(row, includeEvaluatorType = false) {
     || !evaluatorId
     || !evaluatedGroupId
     || (includeEvaluatorType && !['student', 'faculty', 'unknown'].includes(evaluatorType))
-    || ![ratings.c1, ratings.c2, ratings.c3].every((rating) => Number.isInteger(rating) && rating >= 1 && rating <= RATING_SCALE)
-    || (ratings.c4 !== null && (!Number.isInteger(ratings.c4) || ratings.c4 < 1 || ratings.c4 > RATING_SCALE))
+    || !isValidRatings(ratings)
     || !isValidSubmittedAt(submittedAt)
   ) {
     throw new Error('Evaluation data contains an invalid record.');
@@ -101,15 +101,24 @@ function parseEvaluationRow(row, includeEvaluatorType = false) {
 }
 
 function parseEvaluationRatings(row) {
-  const logoRating = row.LogoRating;
   return {
-    c1: Number(row.ResearchPaperRating),
-    c2: Number(row.PitchVideoRating),
-    c3: Number(row.PosterRating),
-    c4: logoRating === '' || logoRating === null || logoRating === undefined
-      ? null
-      : Number(logoRating),
+    c1: parseOptionalRating(row.ResearchPaperRating),
+    c2: parseOptionalRating(row.PitchVideoRating),
+    c3: parseOptionalRating(row.PosterRating),
+    c4: parseOptionalRating(row.LogoRating),
   };
+}
+
+function parseOptionalRating(value) {
+  return value === '' || value === null || value === undefined ? null : Number(value);
+}
+
+function isValidRatings(ratings) {
+  const values = [ratings.c1, ratings.c2, ratings.c3, ratings.c4];
+  return values.some((rating) => Number.isInteger(rating) && rating >= 1 && rating <= RATING_SCALE)
+    && values.every((rating) => (
+      rating === null || Number.isInteger(rating) && rating >= 1 && rating <= RATING_SCALE
+    ));
 }
 
 export async function getStudentEvaluationData(evaluatorId) {
@@ -129,8 +138,7 @@ export async function getStudentEvaluationData(evaluatorId) {
       !studentId ||
       studentId !== evaluatorId ||
       !groupCode ||
-      ![ratings.c1, ratings.c2, ratings.c3].every((rating) => Number.isInteger(rating) && rating >= 1 && rating <= RATING_SCALE) ||
-      (ratings.c4 !== null && (!Number.isInteger(ratings.c4) || ratings.c4 < 1 || ratings.c4 > RATING_SCALE)) ||
+      !isValidRatings(ratings) ||
       !isValidSubmittedAt(submittedAt)
     ) {
       throw new Error('Evaluation history contains an invalid record.');
@@ -283,13 +291,29 @@ export async function submitEvaluation({ evaluatorId, evaluatedGroupId, ratings,
     if (!check.canEvaluate) throw new Error(check.reason);
     if (!ratings || typeof ratings !== 'object' || Array.isArray(ratings)) throw new Error('Please rate every criterion.');
 
+    const project = (await getProjects()).find((item) => item.groupId === evaluatedGroupId);
+    if (!project) throw new Error('This project group could not be found.');
+
     const savedRatings = {};
+    let availableCriterionCount = 0;
     for (const criterion of evaluationCriteria) {
       const value = ratings[criterion.id];
+      if (!hasCriterionSubmission(project, criterion.id)) {
+        if (value !== undefined && value !== null) {
+          throw new Error(`${criterion.label} has not been submitted and cannot be rated.`);
+        }
+        savedRatings[criterion.id] = null;
+        continue;
+      }
+
+      availableCriterionCount += 1;
       if (!Number.isInteger(value) || value < 1 || value > RATING_SCALE) {
         throw new Error('Please rate every criterion from 1 to 5.');
       }
       savedRatings[criterion.id] = value;
+    }
+    if (availableCriterionCount === 0) {
+      throw new Error('This project has no submitted resources to evaluate.');
     }
     if (comments !== undefined && typeof comments !== 'string') throw new Error('Comments must be text.');
     const cleanedComments = comments?.trim() || '';
