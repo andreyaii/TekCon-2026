@@ -1,4 +1,5 @@
 import { evaluationCriteria, RATING_SCALE } from '../data/settings.js';
+import { evaluationSubcriteria, evaluationRubric } from '../data/evaluationRubric.js';
 import { calcOverall } from '../utils/ratings.js';
 import { request } from '../config/apiConfig.js';
 import { checkEligibility } from './evaluationAssignment.js';
@@ -73,6 +74,7 @@ export async function getAdminRatingAnalytics(user) {
 
 function parseEvaluationRow(row, includeEvaluatorType = false) {
   const ratings = parseEvaluationRatings(row);
+  const subcriteriaRatings = parseSubcriteriaRatings(row.SubcriteriaRatings);
   const id = String(row.EvaluationID || '').trim();
   const evaluatorId = String(row.StudentID || '').trim();
   const evaluatedGroupId = String(row.GroupCode || '').trim();
@@ -94,15 +96,31 @@ function parseEvaluationRow(row, includeEvaluatorType = false) {
     evaluatorType: includeEvaluatorType ? evaluatorType : undefined,
     evaluatedGroupId,
     ratings,
+    subcriteriaRatings,
     overallScore: calcOverall(ratings),
     comments: String(row.Comment || ''),
     submittedAt,
   };
 }
 
+function parseSubcriteriaRatings(value) {
+  const ratings = {};
+  evaluationSubcriteria.forEach((subcriterion) => {
+    const rating = value?.[subcriterion.id];
+    ratings[subcriterion.id] = rating === '' || rating === null || rating === undefined
+      ? null
+      : Number(rating);
+  });
+  if (Object.values(ratings).some((rating) => (
+    rating !== null && (!Number.isInteger(rating) || rating < 1 || rating > RATING_SCALE)
+  ))) {
+    throw new Error('Evaluation data contains an invalid subcriterion rating.');
+  }
+  return ratings;
+}
+
 function parseEvaluationRatings(row) {
   return {
-    c1: parseOptionalRating(row.ResearchPaperRating),
     c2: parseOptionalRating(row.PitchVideoRating),
     c3: parseOptionalRating(row.PosterRating),
     c4: parseOptionalRating(row.LogoRating),
@@ -114,11 +132,10 @@ function parseOptionalRating(value) {
 }
 
 function isValidRatings(ratings) {
-  const values = [ratings.c1, ratings.c2, ratings.c3, ratings.c4];
-  return values.some((rating) => Number.isInteger(rating) && rating >= 1 && rating <= RATING_SCALE)
-    && values.every((rating) => (
-      rating === null || Number.isInteger(rating) && rating >= 1 && rating <= RATING_SCALE
-    ));
+  const values = [ratings.c2, ratings.c3, ratings.c4];
+  const isValidScore = (rating) => Number.isFinite(rating) && rating >= 1 && rating <= RATING_SCALE;
+  return values.some(isValidScore)
+    && values.every((rating) => rating === null || isValidScore(rating));
 }
 
 export async function getStudentEvaluationData(evaluatorId) {
@@ -294,25 +311,37 @@ export async function submitEvaluation({ evaluatorId, evaluatedGroupId, ratings,
     const project = (await getProjects()).find((item) => item.groupId === evaluatedGroupId);
     if (!project) throw new Error('This project group could not be found.');
 
-    const savedRatings = {};
-    let availableCriterionCount = 0;
-    for (const criterion of evaluationCriteria) {
-      const value = ratings[criterion.id];
-      if (!hasCriterionSubmission(project, criterion.id)) {
-        if (value !== undefined && value !== null) {
-          throw new Error(`${criterion.label} has not been submitted and cannot be rated.`);
+    const savedRatings = { c2: null, c3: null, c4: null };
+    const savedSubcriteriaRatings = {};
+    let availableSubcriterionCount = 0;
+    for (const category of evaluationRubric) {
+      const hasSubmission = hasCriterionSubmission(project, category.resourceCriterionId);
+      const categoryScores = [];
+      for (const subcriterion of category.subcriteria) {
+        const value = ratings[subcriterion.id];
+        if (!hasSubmission) {
+          if (value !== undefined && value !== null) {
+            throw new Error(`${category.criterion} has not been submitted and cannot be rated.`);
+          }
+          savedSubcriteriaRatings[subcriterion.id] = null;
+          continue;
         }
-        savedRatings[criterion.id] = null;
-        continue;
+
+        if (!Number.isInteger(value) || value < 1 || value > RATING_SCALE) {
+          throw new Error(`Please rate every ${category.criterion} subcriterion from 1 to 5.`);
+        }
+        categoryScores.push(value);
+        savedSubcriteriaRatings[subcriterion.id] = value;
       }
 
-      availableCriterionCount += 1;
-      if (!Number.isInteger(value) || value < 1 || value > RATING_SCALE) {
-        throw new Error('Please rate every criterion from 1 to 5.');
+      if (hasSubmission) {
+        availableSubcriterionCount += categoryScores.length;
+        savedRatings[category.id] = Math.round(
+          (categoryScores.reduce((total, value) => total + value, 0) / categoryScores.length) * 100
+        ) / 100;
       }
-      savedRatings[criterion.id] = value;
     }
-    if (availableCriterionCount === 0) {
+    if (availableSubcriterionCount === 0) {
       throw new Error('This project has no submitted resources to evaluate.');
     }
     if (comments !== undefined && typeof comments !== 'string') throw new Error('Comments must be text.');
@@ -327,10 +356,10 @@ export async function submitEvaluation({ evaluatorId, evaluatedGroupId, ratings,
       authenticated: true,
       body: {
         groupCode: evaluatedGroupId,
-        researchPaperRating: savedRatings.c1,
         pitchVideoRating: savedRatings.c2,
         posterRating: savedRatings.c3,
         logoRating: savedRatings.c4,
+        subcriteriaRatings: savedSubcriteriaRatings,
         comment: cleanedComments,
       },
     });
@@ -346,6 +375,7 @@ export async function submitEvaluation({ evaluatorId, evaluatedGroupId, ratings,
       evaluatorId,
       evaluatedGroupId,
       ratings: savedRatings,
+      subcriteriaRatings: savedSubcriteriaRatings,
       overallScore: calcOverall(savedRatings, evaluationCriteria),
       comments: cleanedComments,
       submittedAt,

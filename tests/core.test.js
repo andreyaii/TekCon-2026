@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import { initialSettings, evaluationCriteria } from '../src/data/settings.js';
+import { evaluationRubric, evaluationSubcriteria } from '../src/data/evaluationRubric.js';
 import { checkEligibility } from '../src/services/evaluationAssignment.js';
 import { getAdminRatingAnalytics, getAggregates, getEligibility, getEvaluationStatus, getFacultyEvaluationData, getStudentEvaluationData, submitEvaluation } from '../src/services/evaluationService.js';
 import { getProjects, updateGroupDescription } from '../src/services/projectService.js';
@@ -22,7 +23,17 @@ let apiSettings;
 let currentStudent;
 let apiFailure;
 let requestCounts;
-const validRatings = { c1: 4, c2: 5, c3: 3, c4: 4 };
+const validRatings = {
+  logo_relevance_identity: 4,
+  logo_creativity_originality: 4,
+  logo_visual_appeal_clarity: 4,
+  poster_content_relevance: 3,
+  poster_visual_design_organization: 3,
+  poster_clarity_communication: 3,
+  video_content_message: 5,
+  video_presentation_engagement: 5,
+  video_production_quality: 5,
+};
 const response = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: { 'Content-Type': 'application/json' },
@@ -52,14 +63,13 @@ test('project resource links accept absolute and schemeless web URLs safely', ()
   assert.equal(getSafeResourceUrl('not a URL'), null);
 });
 
-test('evaluation criteria are available only when their resource link is valid', () => {
+test('rated project criteria are available only when their resource link is valid', () => {
   const project = {
     researchPaperLink: 'https://example.com/paper.pdf',
     pitchVideoLink: '',
     documentationLink: 'javascript:alert(1)',
     thumbnail: 'https://example.com/logo.png',
   };
-  assert.equal(hasCriterionSubmission(project, 'c1'), true);
   assert.equal(hasCriterionSubmission(project, 'c2'), false);
   assert.equal(hasCriterionSubmission(project, 'c3'), false);
   assert.equal(hasCriterionSubmission(project, 'c4'), true);
@@ -165,14 +175,15 @@ beforeEach(() => {
       assert.equal(payload.sessionToken, JSON.parse(entries.get('techcon:session')).sessionToken);
       assert.equal(Object.hasOwn(payload, 'studentId'), false);
       assert.equal(Object.hasOwn(payload, 'documentationRating'), false);
+      assert.equal(Object.hasOwn(payload, 'researchPaperRating'), false);
       apiEvaluations.push({
         EvaluationID: 'EV-test',
         StudentID: activeUser.id,
         GroupCode: payload.groupCode,
-        ResearchPaperRating: payload.researchPaperRating,
         PitchVideoRating: payload.pitchVideoRating,
         PosterRating: payload.posterRating,
         LogoRating: payload.logoRating,
+        SubcriteriaRatings: payload.subcriteriaRatings,
         Comment: payload.comment,
         SubmittedAt: '2026-11-11T00:00:00.000Z',
       });
@@ -201,27 +212,31 @@ test('student evaluation submission uses the authenticated API and mapped sheet 
   const { evaluations: mine } = await getStudentEvaluationData(currentStudent.id);
 
   assert.equal(submitted.id, 'EV-test');
-  assert.deepEqual(mine[0].ratings, validRatings);
-  assert.equal(mine[0].ratings.c1, 4);
+  assert.deepEqual(mine[0].ratings, { c2: 5, c3: 3, c4: 4 });
   assert.equal(mine[0].ratings.c4, 4);
+  assert.deepEqual(submitted.subcriteriaRatings, Object.fromEntries(
+    evaluationSubcriteria.map((criterion) => [criterion.id, validRatings[criterion.id]]),
+  ));
   assert.equal(mine[0].overallScore, 4);
   assert.equal(mine[0].comments, 'Clear presentation');
   assert.deepEqual(
     Object.keys(apiEvaluations[0]),
-    ['EvaluationID', 'StudentID', 'GroupCode', 'ResearchPaperRating', 'PitchVideoRating', 'PosterRating', 'LogoRating', 'Comment', 'SubmittedAt'],
+    ['EvaluationID', 'StudentID', 'GroupCode', 'PitchVideoRating', 'PosterRating', 'LogoRating', 'SubcriteriaRatings', 'Comment', 'SubmittedAt'],
   );
   assert.equal(apiEvaluations[0].StudentID, currentStudent.id);
   assert.equal(apiEvaluations[0].PosterRating, 3);
   assert.equal(apiEvaluations[0].LogoRating, 4);
 });
 
-test('evaluation form requires research paper, pitch video, poster, and logo ratings', () => {
+test('evaluation rubric contains only the three guided project categories', () => {
   assert.deepEqual(evaluationCriteria.map((criterion) => criterion.label), [
-    'Research Paper',
-    'Pitch Video',
-    'Poster',
-    'Logo',
+    'Project Logo',
+    'Project Poster',
+    'Video Pitch',
   ]);
+  assert.deepEqual(evaluationRubric.map((category) => category.subcriteria.length), [3, 3, 3]);
+  assert.equal(evaluationSubcriteria.length, 9);
+  assert.ok(evaluationSubcriteria.every((criterion) => criterion.guide));
 });
 
 test('rating aggregates use live records and are only requested by administrators', async () => {
@@ -229,7 +244,6 @@ test('rating aggregates use live records and are only requested by administrator
     EvaluationID: 'EV-live',
     StudentID: 's1',
     GroupCode: 'g2',
-    ResearchPaperRating: 5,
     PitchVideoRating: 4,
     PosterRating: 3,
     LogoRating: 4,
@@ -241,7 +255,7 @@ test('rating aggregates use live records and are only requested by administrator
   const admin = { id: 'f3', accountType: 'Faculty', role: 'Admin' };
   entries.set('techcon:session', JSON.stringify({ user: admin, sessionToken: 'test-session' }));
   const aggregates = await getAggregates(admin);
-  assert.deepEqual(aggregates.g2, { average: 4, count: 1 });
+  assert.deepEqual(aggregates.g2, { average: 3.67, count: 1 });
   assert.equal(requestCounts.get('getRatingAnalytics'), 1);
 });
 
@@ -253,7 +267,6 @@ test('faculty My Evaluations loads only records for the signed-in faculty accoun
       EvaluationID: 'EV-faculty',
       StudentID: 'f1',
       GroupCode: 'g4',
-      ResearchPaperRating: 5,
       PitchVideoRating: 4,
       PosterRating: 3,
       LogoRating: 4,
@@ -264,7 +277,6 @@ test('faculty My Evaluations loads only records for the signed-in faculty accoun
       EvaluationID: 'EV-student',
       StudentID: 's1',
       GroupCode: 'g5',
-      ResearchPaperRating: 3,
       PitchVideoRating: 3,
       PosterRating: 3,
       LogoRating: 3,
@@ -276,15 +288,15 @@ test('faculty My Evaluations loads only records for the signed-in faculty accoun
   const evaluations = await getFacultyEvaluationData(faculty);
   assert.equal(evaluations.length, 1);
   assert.equal(evaluations[0].evaluatedGroupId, 'g4');
-  assert.equal(evaluations[0].overallScore, 4);
+  assert.equal(evaluations[0].overallScore, 3.67);
   assert.equal(requestCounts.get('getFacultyEvaluationData'), 1);
 });
 
 test('rating analytics ranks live records by evaluator source and selected category', () => {
   const evaluations = [
-    { evaluatorType: 'student', evaluatedGroupId: 'GROUP-A', ratings: { c1: 4, c2: 3, c3: 5, c4: 4 } },
-    { evaluatorType: 'faculty', evaluatedGroupId: 'GROUP-A', ratings: { c1: 2, c2: 5, c3: 4, c4: 5 } },
-    { evaluatorType: 'unknown', evaluatedGroupId: 'GROUP-B', ratings: { c1: 5, c2: 4, c3: 4, c4: 4 } },
+    { evaluatorType: 'student', evaluatedGroupId: 'GROUP-A', ratings: { c2: 3, c3: 5, c4: 4 } },
+    { evaluatorType: 'faculty', evaluatedGroupId: 'GROUP-A', ratings: { c2: 5, c3: 4, c4: 5 } },
+    { evaluatorType: 'unknown', evaluatedGroupId: 'GROUP-B', ratings: { c2: 4, c3: 4, c4: 4 } },
   ];
   const projects = [
     { groupId: 'GROUP-A', title: 'Group A' },
@@ -293,9 +305,9 @@ test('rating analytics ranks live records by evaluator source and selected categ
 
   const combined = summarizeRatings(evaluations, projects);
   assert.equal(combined.evaluationCount, 3);
-  assert.equal(combined.categories[0].leaders[0].groupName, 'Group B');
-  assert.equal(combined.categories[0].leaders[0].average, 5);
-  assert.equal(combined.overallGroups[0].groupName, 'Group B');
+  assert.equal(combined.categories[0].leaders[0].groupName, 'Group A');
+  assert.equal(combined.categories[0].leaders[0].average, 4.5);
+  assert.equal(combined.overallGroups[0].groupName, 'Group A');
 
   const facultyPitch = summarizeRatings(evaluations, projects, {
     source: 'faculty',
@@ -305,6 +317,26 @@ test('rating analytics ranks live records by evaluator source and selected categ
   assert.equal(facultyPitch.categories.length, 1);
   assert.equal(facultyPitch.categories[0].leaders[0].groupName, 'Group A');
   assert.equal(facultyPitch.categories[0].leaders[0].average, 5);
+
+  const rubric = summarizeRatings([
+    {
+      evaluatorType: 'faculty',
+      evaluatedGroupId: 'GROUP-A',
+      ratings: { c2: 4, c3: 3, c4: 4 },
+      subcriteriaRatings: {
+        logo_relevance_identity: 5,
+        logo_creativity_originality: 4,
+        logo_visual_appeal_clarity: 3,
+      },
+    },
+  ], projects);
+  assert.equal(rubric.subcriteria[0].average, 5);
+  assert.equal(rubric.subcriteria[0].groups[0].groupName, 'Group A');
+  assert.equal(rubric.overallGroups[0].subcriteria[0].average, 5);
+  assert.equal(rubric.categoryAverages.find((item) => item.criterion.id === 'c4').average, 4);
+  assert.deepEqual(rubric.strongestSubcriteria.map((criterion) => criterion.id), ['logo_relevance_identity']);
+  assert.deepEqual(rubric.weakestSubcriteria.map((criterion) => criterion.id), ['logo_visual_appeal_clarity']);
+  assert.equal(calcOverall({ c2: 5, c3: 3, c4: 4 }), 4);
 });
 
 test('rating analytics service rejects non-admin sessions before requesting sheet data', async () => {
@@ -315,12 +347,43 @@ test('rating analytics service rejects non-admin sessions before requesting shee
   assert.equal(requestCounts.get('getRatingAnalytics') || 0, 0);
 });
 
+test('admin analytics reads decimal category averages and individual rubric ratings', async () => {
+  const admin = { id: 'f3', accountType: 'Faculty', role: 'Admin' };
+  entries.set('techcon:session', JSON.stringify({ user: admin, sessionToken: 'test-session' }));
+  apiEvaluations.push({
+    EvaluationID: 'EV-rubric',
+    StudentID: 's1',
+    GroupCode: 'g2',
+    PitchVideoRating: 4.33,
+    PosterRating: 3.67,
+    LogoRating: 2.33,
+    SubcriteriaRatings: {
+      logo_relevance_identity: 2,
+      logo_creativity_originality: 2,
+      logo_visual_appeal_clarity: 3,
+      poster_content_relevance: 3,
+      poster_visual_design_organization: 4,
+      poster_clarity_communication: 4,
+      video_content_message: 4,
+      video_presentation_engagement: 4,
+      video_production_quality: 5,
+    },
+    Comment: '',
+    SubmittedAt: '2026-11-11T00:00:00.000Z',
+  });
+
+  const [evaluation] = await getAdminRatingAnalytics(admin);
+  assert.equal(evaluation.ratings.c2, 4.33);
+  assert.equal(evaluation.ratings.c3, 3.67);
+  assert.equal(evaluation.ratings.c4, 2.33);
+  assert.equal(evaluation.subcriteriaRatings.video_production_quality, 5);
+});
+
 test('evaluation history and status share one authenticated API request', async () => {
   apiEvaluations.push({
     EvaluationID: 'EV-existing',
     StudentID: 's1',
     GroupCode: 'g2',
-    ResearchPaperRating: 3,
     PitchVideoRating: 4,
     PosterRating: 5,
     LogoRating: 4,
@@ -331,7 +394,6 @@ test('evaluation history and status share one authenticated API request', async 
     EvaluationID: 'EV-new-format',
     StudentID: 's1',
     GroupCode: 'g3',
-    ResearchPaperRating: 4,
     PitchVideoRating: 4,
     PosterRating: 4,
     LogoRating: 4,
@@ -342,7 +404,6 @@ test('evaluation history and status share one authenticated API request', async 
     EvaluationID: 'EV-before-logo-rating',
     StudentID: 's1',
     GroupCode: 'g4',
-    ResearchPaperRating: 3,
     PitchVideoRating: 4,
     PosterRating: 5,
     LogoRating: '',
@@ -351,10 +412,10 @@ test('evaluation history and status share one authenticated API request', async 
   });
 
   const { evaluations: mine, status } = await getStudentEvaluationData('s1');
-  assert.equal(mine[0].overallScore, 4);
+  assert.equal(mine[0].overallScore, 4.33);
   assert.equal(mine[1].submittedAt, '2026-11-11 12:30:45');
   assert.equal(mine[2].ratings.c4, null);
-  assert.equal(mine[2].overallScore, 4);
+  assert.equal(mine[2].overallScore, 4.5);
   assert.deepEqual(status, { submitted: 3 });
   assert.equal(requestCounts.get('getStudentEvaluationData'), 1);
 });
@@ -435,7 +496,6 @@ test('eligibility blocks self, duplicate, and missing groups', async () => {
     EvaluationID: 'EV-existing',
     StudentID: 's1',
     GroupCode: 'g2',
-    ResearchPaperRating: 4,
     PitchVideoRating: 4,
     PosterRating: 4,
     LogoRating: 4,
@@ -456,7 +516,6 @@ test('eligibility blocks self, duplicate, and missing groups', async () => {
       EvaluationID: `EV-${index}`,
       StudentID: 's1',
       GroupCode: `g${index}`,
-      ResearchPaperRating: 4,
       PitchVideoRating: 4,
       PosterRating: 4,
       LogoRating: 4,
@@ -474,18 +533,14 @@ test('eligibility blocks self, duplicate, and missing groups', async () => {
   assert.equal((await getEvaluationStatus('s1')).submitted, 6);
 });
 
-test('submission validates ratings and comment length before calling the API', async () => {
+test('submission validates rubric ratings and comment length before calling the API', async () => {
   await assert.rejects(
-    submitEvaluation({ evaluatorId: 's1', evaluatedGroupId: 'g4', ratings: { ...validRatings, c1: 6 } }),
-    /rate every criterion/,
+    submitEvaluation({ evaluatorId: 's1', evaluatedGroupId: 'g4', ratings: { ...validRatings, video_content_message: 2.5 } }),
+    /rate every Video Pitch subcriterion/,
   );
   await assert.rejects(
-    submitEvaluation({ evaluatorId: 's1', evaluatedGroupId: 'g4', ratings: { ...validRatings, c2: 2.5 } }),
-    /rate every criterion/,
-  );
-  await assert.rejects(
-    submitEvaluation({ evaluatorId: 's1', evaluatedGroupId: 'g4', ratings: { ...validRatings, c4: 6 } }),
-    /rate every criterion/,
+    submitEvaluation({ evaluatorId: 's1', evaluatedGroupId: 'g4', ratings: { ...validRatings, logo_visual_appeal_clarity: 6 } }),
+    /rate every Project Logo subcriterion/,
   );
   apiSettings.CommentMaxLength = '3';
   await assert.rejects(
@@ -494,7 +549,7 @@ test('submission validates ratings and comment length before calling the API', a
   );
 });
 
-test('submission omits criteria without resources and rejects attempts to rate them', async () => {
+test('submission omits rubric categories without resources', async () => {
   apiGroups = Array.from({ length: 8 }, (_, index) => ({
     groupCode: `g${index + 1}`,
     title: `Group ${String(index + 1).padStart(2, '0')}`,
@@ -504,7 +559,6 @@ test('submission omits criteria without resources and rejects attempts to rate t
     documentationLink: 'https://example.com/poster.pdf',
     thumbnail: 'https://example.com/logo.png',
   }));
-  apiGroups[3].researchPaperLink = '';
   apiGroups[3].thumbnail = '';
   await getProjects({ refresh: true });
   const previousEvaluationCount = apiEvaluations.length;
@@ -512,26 +566,30 @@ test('submission omits criteria without resources and rejects attempts to rate t
     submitEvaluation({
       evaluatorId: 's1',
       evaluatedGroupId: 'g4',
-      ratings: { c1: 5, c2: 4, c3: 3, c4: null },
+      ratings: { ...validRatings },
     }),
-    /Research Paper has not been submitted/,
+    /Project Logo has not been submitted/,
   );
   assert.equal(apiEvaluations.length, previousEvaluationCount);
 
   const result = await submitEvaluation({
     evaluatorId: 's1',
     evaluatedGroupId: 'g4',
-    ratings: { c1: null, c2: 4, c3: 3, c4: null },
+    ratings: {
+      ...validRatings,
+      logo_relevance_identity: null,
+      logo_creativity_originality: null,
+      logo_visual_appeal_clarity: null,
+    },
   });
-  assert.equal(result.ratings.c1, null);
-  assert.equal(result.ratings.c2, 4);
+  assert.equal(result.ratings.c2, 5);
+  assert.equal(result.ratings.c3, 3);
   assert.equal(result.ratings.c4, null);
-  assert.equal(apiEvaluations.at(-1).ResearchPaperRating, null);
+  assert.equal(Object.hasOwn(apiEvaluations.at(-1), 'ResearchPaperRating'), false);
   assert.equal(apiEvaluations.at(-1).LogoRating, null);
   const history = await getStudentEvaluationData('s1');
-  assert.equal(history.evaluations.at(-1).ratings.c1, null);
+  assert.equal(Object.hasOwn(history.evaluations.at(-1).ratings, 'c1'), false);
   assert.equal(history.evaluations.at(-1).ratings.c4, null);
-  apiGroups[3].researchPaperLink = 'https://example.com/paper.pdf';
   apiGroups[3].thumbnail = 'https://example.com/logo.png';
   await getProjects({ refresh: true });
 });
@@ -567,7 +625,7 @@ test('database request failures surface instead of falling back to local evaluat
   apiFailure = true;
   await assert.rejects(getEvaluationStatus('s1'), /Database unavailable/);
   assert.equal(entries.has('techcon:evaluations'), false);
-  assert.equal(calcOverall(validRatings), 4);
+  assert.equal(calcOverall({ c2: 5, c3: 3, c4: 4 }), 4);
 
   entries.set('techcon:session', JSON.stringify({ user: currentStudent }));
   await assert.rejects(getEvaluationStatus('s1'), /session has expired/);

@@ -5,7 +5,7 @@ import { getSafeResourceUrl } from '../utils/resourceUrl';
 // Project logo plus three separate resources: Research Paper, Pitch Video, and Poster.
 const items = [
   { key: 'researchPaperLink', legacyKey: 'proposalLink', label: 'Research Paper', icon: FileText },
-  { key: 'pitchVideoLink', legacyKey: 'pitchVideoUrl', label: 'Pitch Video', icon: PlayCircle },
+  { key: 'pitchVideoLink', legacyKey: 'pitchVideoUrl', label: 'Video Pitch', icon: PlayCircle },
   { key: 'documentationLink', legacyKey: 'documentationUrl', label: 'Poster', icon: BookOpen },
 ];
 

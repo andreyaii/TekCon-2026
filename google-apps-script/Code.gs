@@ -521,14 +521,19 @@ function doGet(e) {
       getAuthenticatedAdmin(e.parameter.sessionToken);
 
       const evalSheet = getRequiredSheet(spreadsheet, "Evaluations");
+      const evaluations = getEvaluationRows(evalSheet);
+      const subcriteriaByEvaluation = getEvaluationSubcriteriaById(spreadsheet, evaluations);
 
       return responseJSON({
         success: true,
         data: {
-          evaluations: getRatingAnalyticsRows(
-            spreadsheet,
-            getEvaluationRows(evalSheet)
-          )
+          evaluations: getRatingAnalyticsRows(spreadsheet, evaluations).map(function(evaluation) {
+            return {
+              ...evaluation,
+              SubcriteriaRatings:
+                subcriteriaByEvaluation[evaluation.EvaluationID] || {}
+            };
+          })
         }
       });
     }
@@ -1036,41 +1041,16 @@ function doPost(e) {
           throw new Error("This project group could not be found.");
         }
 
-        const ratingFields = [
-          {
-            key: "researchPaperRating",
-            label: "Research Paper",
-            hasSubmission: hasValidResourceUrl(project.researchPaperLink)
-          },
-          {
-            key: "pitchVideoRating",
-            label: "Pitch Video",
-            hasSubmission: hasValidResourceUrl(project.pitchVideoLink)
-          },
-          {
-            key: "posterRating",
-            label: "Poster",
-            hasSubmission: hasValidResourceUrl(project.documentationLink)
-          },
-          {
-            key: "logoRating",
-            label: "Logo",
-            hasSubmission: hasValidResourceUrl(project.thumbnail)
-          }
-        ];
+        const rubricRatings = validateEvaluationSubcriteria(
+          project,
+          payload.subcriteriaRatings
+        );
+        const categoryRatings = calculateRubricCategoryAverages(rubricRatings);
+        const availableCategories = evaluationRubricCategories().filter(function(category) {
+          return categoryRatings[category.ratingField] !== "";
+        }).length;
 
-        let availableCriteria = 0;
-        const validatedRatings = {};
-        ratingFields.forEach(function(field) {
-          if (field.hasSubmission) availableCriteria += 1;
-          validatedRatings[field.key] = validateCriterionRating(
-            payload[field.key],
-            field.hasSubmission,
-            field.label
-          );
-        });
-
-        if (availableCriteria === 0) {
+        if (availableCategories === 0) {
           throw new Error("This project has no submitted resources to evaluate.");
         }
 
@@ -1130,6 +1110,7 @@ function doPost(e) {
         }
 
         const evaluationId = generateEvaluationId(evalSheet);
+        const detailsSheet = getEvaluationDetailsSheet(spreadsheet, true);
 
         const submittedAt = Utilities.formatDate(
           new Date(),
@@ -1141,19 +1122,51 @@ function doPost(e) {
           EvaluationID: evaluationId,
           StudentID: evaluatorId,
           GroupCode: groupCode,
-          ResearchPaperRating: validatedRatings.researchPaperRating,
-          PitchVideoRating: validatedRatings.pitchVideoRating,
-          PosterRating: validatedRatings.posterRating,
-          LogoRating: validatedRatings.logoRating,
+          PitchVideoRating: categoryRatings.PitchVideoRating,
+          PosterRating: categoryRatings.PosterRating,
+          LogoRating: categoryRatings.LogoRating,
           Comment: comment.trim(),
           SubmittedAt: submittedAt
         };
 
-        evalSheet.appendRow(
-          getEvaluationHeaders(evalSheet).map(function(header) {
-            return getStudentField(evaluation, [header]);
-          })
-        );
+        deleteEvaluationDetailsForId(detailsSheet, evaluationId);
+        try {
+          rubricRatings.forEach(function(detail) {
+            detailsSheet.appendRow([
+              evaluationId,
+              detail.criterion,
+              detail.subcriterion,
+              detail.rating === null ? "" : detail.rating
+            ]);
+          });
+
+          evalSheet.appendRow(
+            getEvaluationHeaders(evalSheet).map(function(header) {
+              return getStudentField(evaluation, [header]);
+            })
+          );
+        } catch (writeError) {
+          const evaluationWasWritten = getEvaluationRows(evalSheet).some(function(row) {
+            return String(getStudentField(row, ["evaluation id"]) || "") === evaluationId;
+          });
+          if (!evaluationWasWritten) {
+            try {
+              deleteEvaluationDetailsForId(detailsSheet, evaluationId);
+            } catch (cleanupError) {
+              Logger.log(
+                "Could not roll back evaluation detail rows for " +
+                evaluationId +
+                ": " +
+                cleanupError.message
+              );
+              throw new Error(
+                "Evaluation submission failed and its detail rows could not be rolled back. " +
+                "Contact an administrator before retrying."
+              );
+            }
+          }
+          throw writeError;
+        }
 
         return responseJSON({
           success: true,
@@ -1944,12 +1957,51 @@ const EVALUATION_HEADERS = [
   "EvaluationID",
   "StudentID",
   "GroupCode",
-  "ResearchPaperRating",
   "PitchVideoRating",
   "PosterRating",
   "LogoRating",
   "Comment",
   "SubmittedAt"
+];
+
+const EVALUATION_DETAILS_HEADERS = [
+  "EvaluationID",
+  "Criterion",
+  "Subcriterion",
+  "Rating"
+];
+
+const EVALUATION_RUBRIC = [
+  {
+    criterion: "Project Logo",
+    resourceField: "thumbnail",
+    ratingField: "LogoRating",
+    subcriteria: [
+      { id: "logo_relevance_identity", label: "Relevance and Identity" },
+      { id: "logo_creativity_originality", label: "Creativity and Originality" },
+      { id: "logo_visual_appeal_clarity", label: "Visual Appeal and Clarity" }
+    ]
+  },
+  {
+    criterion: "Project Poster",
+    resourceField: "documentationLink",
+    ratingField: "PosterRating",
+    subcriteria: [
+      { id: "poster_content_relevance", label: "Content and Relevance" },
+      { id: "poster_visual_design_organization", label: "Visual Design and Organization" },
+      { id: "poster_clarity_communication", label: "Clarity and Communication" }
+    ]
+  },
+  {
+    criterion: "Video Pitch",
+    resourceField: "pitchVideoLink",
+    ratingField: "PitchVideoRating",
+    subcriteria: [
+      { id: "video_content_message", label: "Content and Message" },
+      { id: "video_presentation_engagement", label: "Presentation and Engagement" },
+      { id: "video_production_quality", label: "Production Quality" }
+    ]
+  }
 ];
 
 
@@ -1964,8 +2016,13 @@ function getEvaluationHeaders(sheet) {
         })
     : [];
 
+  const hasLegacyResearchPaperRating =
+    getHeaderIndex(headers, ["ResearchPaperRating"]) !== -1;
+  const expectedHeaderCount = EVALUATION_HEADERS.length +
+    (hasLegacyResearchPaperRating ? 1 : 0);
+
   if (
-    headers.length !== EVALUATION_HEADERS.length ||
+    headers.length !== expectedHeaderCount ||
     !EVALUATION_HEADERS.every(function(header) {
       return getHeaderIndex(headers, [header]) !== -1;
     })
@@ -1983,6 +2040,137 @@ function getEvaluationHeaders(sheet) {
 function getEvaluationRows(sheet) {
   getEvaluationHeaders(sheet);
   return getSheetData(sheet);
+}
+
+function evaluationRubricCategories() {
+  return EVALUATION_RUBRIC;
+}
+
+function getEvaluationDetailsSheet(spreadsheet, required) {
+  const sheet = spreadsheet.getSheetByName("EvaluationDetails");
+  if (!sheet) {
+    if (required) {
+      throw new Error(
+        "EvaluationDetails sheet not found. Create it with the headers: " +
+        EVALUATION_DETAILS_HEADERS.join(", ")
+      );
+    }
+    return null;
+  }
+
+  const lastColumn = sheet.getLastColumn();
+  const headers = lastColumn > 0
+    ? sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0].map(function(header) {
+      return String(header);
+    })
+    : [];
+  if (
+    headers.length !== EVALUATION_DETAILS_HEADERS.length ||
+    !EVALUATION_DETAILS_HEADERS.every(function(header, index) {
+      return headers[index] === header;
+    })
+  ) {
+    throw new Error(
+      "The EvaluationDetails sheet must have these exact headers in order: " +
+      EVALUATION_DETAILS_HEADERS.join(", ")
+    );
+  }
+
+  return sheet;
+}
+
+function validateEvaluationSubcriteria(project, submittedRatings) {
+  if (!submittedRatings || typeof submittedRatings !== "object" || Array.isArray(submittedRatings)) {
+    throw new Error("Please rate each submitted rubric subcriterion.");
+  }
+
+  const details = [];
+  EVALUATION_RUBRIC.forEach(function(category) {
+    const hasSubmission = hasValidResourceUrl(project[category.resourceField]);
+    category.subcriteria.forEach(function(subcriterion) {
+      const value = submittedRatings[subcriterion.id];
+      let rating = null;
+      if (hasSubmission) {
+        rating = validateRating(value);
+      } else if (value !== undefined && value !== null && value !== "") {
+        throw new Error(
+          category.criterion + " has not been submitted and cannot be rated."
+        );
+      }
+
+      details.push({
+        id: subcriterion.id,
+        criterion: category.criterion,
+        subcriterion: subcriterion.label,
+        rating: rating
+      });
+    });
+  });
+  return details;
+}
+
+function calculateRubricCategoryAverages(details) {
+  const averages = {};
+  EVALUATION_RUBRIC.forEach(function(category) {
+    const ratings = details
+      .filter(function(detail) {
+        return detail.criterion === category.criterion && detail.rating !== null;
+      })
+      .map(function(detail) {
+        return detail.rating;
+      });
+    averages[category.ratingField] = ratings.length
+      ? Math.round(
+        (ratings.reduce(function(total, rating) {
+          return total + rating;
+        }, 0) / ratings.length) * 100
+      ) / 100
+      : "";
+  });
+  return averages;
+}
+
+function deleteEvaluationDetailsForId(sheet, evaluationId) {
+  const values = sheet.getDataRange().getValues();
+  const evaluationIdIndex = EVALUATION_DETAILS_HEADERS.indexOf("EvaluationID");
+  for (let rowIndex = values.length - 1; rowIndex >= 1; rowIndex--) {
+    if (String(values[rowIndex][evaluationIdIndex] || "") === evaluationId) {
+      sheet.deleteRow(rowIndex + 1);
+    }
+  }
+}
+
+function getEvaluationSubcriteriaById(spreadsheet, evaluations) {
+  const sheet = getEvaluationDetailsSheet(spreadsheet, false);
+  const ratingsByEvaluation = {};
+  evaluations.forEach(function(evaluation) {
+    const evaluationId = String(getStudentField(evaluation, ["evaluation id"]) || "");
+    if (evaluationId) ratingsByEvaluation[evaluationId] = {};
+  });
+  if (!sheet) return ratingsByEvaluation;
+
+  const rows = getSheetData(sheet);
+  const subcriterionByLabel = {};
+  EVALUATION_RUBRIC.forEach(function(category) {
+    category.subcriteria.forEach(function(subcriterion) {
+      subcriterionByLabel[
+        normalizeHeader(category.criterion) + "|" + normalizeHeader(subcriterion.label)
+      ] = subcriterion.id;
+    });
+  });
+  rows.forEach(function(row) {
+    const evaluationId = String(getStudentField(row, ["evaluation id"]) || "");
+    const key = normalizeHeader(getStudentField(row, ["criterion"])) +
+      "|" + normalizeHeader(getStudentField(row, ["subcriterion"]));
+    const subcriterionId = subcriterionByLabel[key];
+    if (!subcriterionId || !ratingsByEvaluation[evaluationId]) return;
+
+    const value = getStudentField(row, ["rating"]);
+    ratingsByEvaluation[evaluationId][subcriterionId] =
+      value === "" || value === null || value === undefined ? null : Number(value);
+  });
+
+  return ratingsByEvaluation;
 }
 
 
@@ -2035,17 +2223,6 @@ function validateRating(value) {
   }
 
   return value;
-}
-
-function validateCriterionRating(value, hasSubmission, label) {
-  if (!hasSubmission) {
-    if (value !== undefined && value !== null && value !== "") {
-      throw new Error(label + " has not been submitted and cannot be rated.");
-    }
-    return "";
-  }
-
-  return validateRating(value);
 }
 
 function hasValidResourceUrl(value) {
@@ -2114,10 +2291,6 @@ function getRatingAnalyticsRows(spreadsheet, evaluations) {
       EvaluationID: getStudentField(evaluation, ["evaluation id"]),
       StudentID: evaluatorId,
       GroupCode: getStudentField(evaluation, ["group code"]),
-      ResearchPaperRating: getStudentField(
-        evaluation,
-        ["research paper rating"]
-      ),
       PitchVideoRating: getStudentField(
         evaluation,
         ["pitch video rating"]

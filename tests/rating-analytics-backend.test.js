@@ -4,16 +4,27 @@ import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 
 const script = readFileSync(new URL('../google-apps-script/Code.gs', import.meta.url), 'utf8');
+const validSubcriteriaRatings = {
+  logo_relevance_identity: 2,
+  logo_creativity_originality: 2,
+  logo_visual_appeal_clarity: 2,
+  poster_content_relevance: 3,
+  poster_visual_design_organization: 3,
+  poster_clarity_communication: 3,
+  video_content_message: 4,
+  video_presentation_engagement: 4,
+  video_production_quality: 4,
+};
 
 function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Adviser']]) {
   const evaluations = [
-    ['EV-1', 'STUDENT-1', 'GROUP-1', 5, 4, 3, 4, '', '2026-11-12 10:00:00'],
-    ['EV-2', 'FAC-2', 'GROUP-2', 2, 3, 4, 5, '', '2026-11-12 11:00:00'],
-    ['EV-3', 'ADMIN-1', 'GROUP-3', 4, 4, 4, 3, '', '2026-11-12 12:00:00'],
+    ['EV-1', 'STUDENT-1', 'GROUP-1', 4, 3, 4, '', '2026-11-12 10:00:00'],
+    ['EV-2', 'FAC-2', 'GROUP-2', 3, 4, 5, '', '2026-11-12 11:00:00'],
+    ['EV-3', 'ADMIN-1', 'GROUP-3', 4, 4, 3, '', '2026-11-12 12:00:00'],
   ];
   const sheets = {
     Evaluations: [
-      ['EvaluationID', 'StudentID', 'GroupCode', 'ResearchPaperRating', 'PitchVideoRating', 'PosterRating', 'LogoRating', 'Comment', 'SubmittedAt'],
+      ['EvaluationID', 'StudentID', 'GroupCode', 'PitchVideoRating', 'PosterRating', 'LogoRating', 'Comment', 'SubmittedAt'],
       ...evaluations,
     ],
     Students: [['StudentID', 'GroupCode'], ['STUDENT-1', 'GROUP-1']],
@@ -28,6 +39,9 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
     GroupOverrides: [
       ['GroupCode', 'DescriptionOverride', 'UpdatedAt'],
     ],
+    EvaluationDetails: [
+      ['EvaluationID', 'Criterion', 'Subcriterion', 'Rating'],
+    ],
   };
   const cache = new Map([[
     'faculty-session:test-token',
@@ -38,6 +52,8 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
   ]]);
   const driveFolders = new Map();
   const driveFolderScans = new Map();
+  let detailAppendCount = 0;
+  let failDetailAppendAt = 0;
   const spreadsheet = {
     getSheetByName(name) {
       const values = sheets[name];
@@ -59,7 +75,16 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
           };
         },
         getDataRange: () => ({ getValues: () => values.map((row) => [...row]) }),
-        appendRow: (row) => values.push([...row]),
+        appendRow(row) {
+          if (name === 'EvaluationDetails') {
+            detailAppendCount += 1;
+            if (detailAppendCount === failDetailAppendAt) {
+              failDetailAppendAt = 0;
+              throw new Error('Simulated EvaluationDetails write failure.');
+            }
+          }
+          values.push([...row]);
+        },
         deleteRow: (row) => values.splice(row - 1, 1),
       };
     },
@@ -117,19 +142,30 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
   context.sheets = sheets;
   context.driveFolders = driveFolders;
   context.driveFolderScans = driveFolderScans;
+  context.failDetailAppendAt = (count) => {
+    detailAppendCount = 0;
+    failDetailAppendAt = count;
+  };
   runInNewContext(script, context);
   return context;
 }
 
 test('Admin analytics uses the authenticated Admin session without an Admin Faculty row or group assignment', () => {
   const backend = createBackend('Admin');
+  backend.sheets.EvaluationDetails.push([
+    'EV-1',
+    'Project Logo',
+    'Relevance and Identity',
+    5,
+  ]);
   const response = backend.doGet({ parameter: { action: 'getRatingAnalytics', sessionToken: 'test-token' } });
   const result = JSON.parse(response.content);
 
   assert.equal(result.success, true, result.message);
   assert.deepEqual(result.data.evaluations.map((evaluation) => evaluation.GroupCode), ['GROUP-1', 'GROUP-2', 'GROUP-3']);
-  assert.equal(result.data.evaluations[0].ResearchPaperRating, 5);
+  assert.equal(Object.hasOwn(result.data.evaluations[0], 'ResearchPaperRating'), false);
   assert.equal(result.data.evaluations[0].LogoRating, 4);
+  assert.equal(result.data.evaluations[0].SubcriteriaRatings.logo_relevance_identity, 5);
 });
 
 test('Faculty Advisers cannot access Admin analytics', () => {
@@ -161,10 +197,16 @@ test('Faculty Adviser evaluation history is scoped to the Adviser account', () =
   assert.deepEqual(result.data.evaluations.map((evaluation) => evaluation.EvaluationID), ['EV-2']);
 });
 
-test('Apps Script stores the Research Paper and Logo ratings in the matching sheet columns', () => {
+test('Apps Script stores the three category averages without a Research Paper rating column', () => {
   const backend = createBackend('Adviser');
   const cache = backend.CacheService.getScriptCache();
   cache.put('faculty-session:test-token', JSON.stringify({ facultyId: 'FAC-2', role: 'Adviser' }));
+  const subcriteriaRatings = {
+    ...validSubcriteriaRatings,
+    logo_creativity_originality: 3,
+    poster_visual_design_organization: 4,
+    video_presentation_engagement: 5,
+  };
   const evaluations = backend.sheets.Evaluations;
   const headers = evaluations[0];
   const reorderedHeaders = [...headers.filter((header) => header !== 'LogoRating'), 'LogoRating'];
@@ -179,10 +221,10 @@ test('Apps Script stores the Research Paper and Logo ratings in the matching she
         action: 'submitEvaluation',
         sessionToken: 'test-token',
         groupCode: 'GROUP-4',
-        researchPaperRating: 5,
         pitchVideoRating: 4,
         posterRating: 3,
         logoRating: 2,
+        subcriteriaRatings,
         comment: 'Clear and relevant.',
       }),
     },
@@ -195,12 +237,183 @@ test('Apps Script stores the Research Paper and Logo ratings in the matching she
   assert.equal(savedEvaluation.EvaluationID, result.evaluationId);
   assert.equal(savedEvaluation.StudentID, 'FAC-2');
   assert.equal(savedEvaluation.GroupCode, 'GROUP-4');
-  assert.equal(savedEvaluation.ResearchPaperRating, 5);
-  assert.equal(savedEvaluation.PitchVideoRating, 4);
-  assert.equal(savedEvaluation.PosterRating, 3);
-  assert.equal(savedEvaluation.LogoRating, 2);
+  assert.equal(savedEvaluation.PitchVideoRating, 4.33);
+  assert.equal(savedEvaluation.PosterRating, 3.33);
+  assert.equal(savedEvaluation.LogoRating, 2.33);
   assert.equal(savedEvaluation.Comment, 'Clear and relevant.');
   assert.equal(savedEvaluation.SubmittedAt, '2026-11-14 09:00:00');
+  assert.equal(backend.sheets.EvaluationDetails.length, 10);
+  assert.deepEqual(
+    backend.sheets.EvaluationDetails.slice(1).map((row) => row.slice(1)),
+    [
+      ['Project Logo', 'Relevance and Identity', 2],
+      ['Project Logo', 'Creativity and Originality', 3],
+      ['Project Logo', 'Visual Appeal and Clarity', 2],
+      ['Project Poster', 'Content and Relevance', 3],
+      ['Project Poster', 'Visual Design and Organization', 4],
+      ['Project Poster', 'Clarity and Communication', 3],
+      ['Video Pitch', 'Content and Message', 4],
+      ['Video Pitch', 'Presentation and Engagement', 5],
+      ['Video Pitch', 'Production Quality', 4],
+    ],
+  );
+  assert.ok(backend.sheets.EvaluationDetails.slice(1).every((row) => row[0] === result.evaluationId));
+
+  const retryResponse = JSON.parse(backend.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'submitEvaluation',
+        sessionToken: 'test-token',
+        groupCode: 'GROUP-4',
+        pitchVideoRating: 4,
+        posterRating: 3,
+        logoRating: 2,
+        subcriteriaRatings,
+        comment: 'Clear and relevant.',
+      }),
+    },
+  }).content);
+  assert.equal(retryResponse.success, false);
+  assert.equal(backend.sheets.EvaluationDetails.length, 10);
+});
+
+test('submission accepts the legacy ResearchPaperRating column without using or changing it', () => {
+  const backend = createBackend('Adviser');
+  backend.CacheService.getScriptCache().put(
+    'faculty-session:test-token',
+    JSON.stringify({ facultyId: 'FAC-2', role: 'Adviser' }),
+  );
+  const evaluations = backend.sheets.Evaluations;
+  const currentHeaders = evaluations[0];
+  const legacyHeaders = [
+    'EvaluationID',
+    'StudentID',
+    'GroupCode',
+    'ResearchPaperRating',
+    'PitchVideoRating',
+    'PosterRating',
+    'LogoRating',
+    'Comment',
+    'SubmittedAt',
+  ];
+  const existingRatings = ['5', '2', '4'];
+  const legacyRows = evaluations.slice(1).map((row, rowIndex) => {
+    const values = Object.fromEntries(currentHeaders.map((header, index) => [header, row[index]]));
+    return legacyHeaders.map((header) => (
+      header === 'ResearchPaperRating' ? existingRatings[rowIndex] : values[header]
+    ));
+  });
+  evaluations.splice(0, evaluations.length, legacyHeaders, ...legacyRows);
+  const priorLegacyRatings = evaluations.slice(1).map((row) => row[3]);
+
+  const result = JSON.parse(backend.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'submitEvaluation',
+        sessionToken: 'test-token',
+        groupCode: 'GROUP-4',
+        subcriteriaRatings: validSubcriteriaRatings,
+      }),
+    },
+  }).content);
+
+  assert.equal(result.success, true, result.message);
+  assert.deepEqual(evaluations.slice(1, 4).map((row) => row[3]), priorLegacyRatings);
+  assert.equal(evaluations.at(-1)[3], '');
+  assert.equal(evaluations.at(-1)[4], 4);
+});
+
+test('failed detail writes roll back and can be retried without duplicate detail rows', () => {
+  const backend = createBackend('Adviser');
+  backend.CacheService.getScriptCache().put(
+    'faculty-session:test-token',
+    JSON.stringify({ facultyId: 'FAC-2', role: 'Adviser' }),
+  );
+  const payload = {
+    action: 'submitEvaluation',
+    sessionToken: 'test-token',
+    groupCode: 'GROUP-4',
+    subcriteriaRatings: validSubcriteriaRatings,
+  };
+  backend.failDetailAppendAt(4);
+  const failed = JSON.parse(backend.doPost({
+    postData: { contents: JSON.stringify(payload) },
+  }).content);
+  assert.equal(failed.success, false);
+  assert.match(failed.message, /Simulated EvaluationDetails write failure/);
+  assert.equal(backend.sheets.EvaluationDetails.length, 1);
+  assert.equal(backend.sheets.Evaluations.length, 4);
+
+  const retried = JSON.parse(backend.doPost({
+    postData: { contents: JSON.stringify(payload) },
+  }).content);
+  assert.equal(retried.success, true, retried.message);
+  assert.equal(backend.sheets.EvaluationDetails.length, 10);
+  assert.equal(backend.sheets.Evaluations.length, 5);
+});
+
+test('submission refuses to alter EvaluationDetails with unexpected headers', () => {
+  const backend = createBackend('Adviser');
+  backend.CacheService.getScriptCache().put(
+    'faculty-session:test-token',
+    JSON.stringify({ facultyId: 'FAC-2', role: 'Adviser' }),
+  );
+  backend.sheets.EvaluationDetails[0] = [
+    'EvaluationID',
+    'Subcriterion',
+    'Criterion',
+    'Rating',
+  ];
+  const before = backend.sheets.Evaluations.map((row) => [...row]);
+  const result = JSON.parse(backend.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'submitEvaluation',
+        sessionToken: 'test-token',
+        groupCode: 'GROUP-4',
+        subcriteriaRatings: validSubcriteriaRatings,
+      }),
+    },
+  }).content);
+
+  assert.equal(result.success, false);
+  assert.match(result.message, /exact headers in order/);
+  assert.deepEqual(backend.sheets.Evaluations, before);
+  assert.equal(backend.sheets.EvaluationDetails.length, 1);
+});
+
+test('unsubmitted rubric categories save blank detail ratings and blank category averages', () => {
+  const backend = createBackend('Adviser');
+  backend.CacheService.getScriptCache().put(
+    'faculty-session:test-token',
+    JSON.stringify({ facultyId: 'FAC-2', role: 'Adviser' }),
+  );
+  backend.sheets.Groups[4][6] = '';
+  const subcriteriaRatings = {
+    ...validSubcriteriaRatings,
+    logo_relevance_identity: null,
+    logo_creativity_originality: null,
+    logo_visual_appeal_clarity: null,
+  };
+  const result = JSON.parse(backend.doPost({
+    postData: {
+      contents: JSON.stringify({
+        action: 'submitEvaluation',
+        sessionToken: 'test-token',
+        groupCode: 'GROUP-4',
+        subcriteriaRatings,
+      }),
+    },
+  }).content);
+
+  assert.equal(result.success, true, result.message);
+  const evaluation = backend.sheets.Evaluations.at(-1);
+  assert.equal(evaluation[3], 4);
+  assert.equal(evaluation[4], 3);
+  assert.equal(evaluation[5], '');
+  const logoDetails = backend.sheets.EvaluationDetails.slice(1, 4);
+  assert.deepEqual(logoDetails.map((row) => row[3]), ['', '', '']);
+  assert.equal(backend.sheets.EvaluationDetails.length, 10);
 });
 
 test('backend rejects ratings for missing resources and stores those criteria as blank', () => {
@@ -209,7 +422,7 @@ test('backend rejects ratings for missing resources and stores those criteria as
     { sessionToken: 'test-token', role: 'Adviser' },
   ]) {
     const backend = createBackend('Adviser');
-    backend.sheets.Groups[4][3] = 'not submitted yet';
+    backend.sheets.Groups[4][6] = '';
     if (evaluator.role === 'Adviser') {
       backend.CacheService.getScriptCache().put(
         'faculty-session:test-token',
@@ -224,15 +437,15 @@ test('backend rejects ratings for missing resources and stores those criteria as
           action: 'submitEvaluation',
           sessionToken: evaluator.sessionToken,
           groupCode: 'GROUP-4',
-          researchPaperRating: 5,
           pitchVideoRating: 4,
           posterRating: 3,
           logoRating: 2,
+          subcriteriaRatings: validSubcriteriaRatings,
         }),
       },
     }).content);
     assert.equal(rejected.success, false);
-    assert.match(rejected.message, /Research Paper has not been submitted/i);
+    assert.match(rejected.message, /Project Logo has not been submitted/i);
     assert.equal(backend.sheets.Evaluations.length, initialRowCount);
 
     const accepted = JSON.parse(backend.doPost({
@@ -241,19 +454,23 @@ test('backend rejects ratings for missing resources and stores those criteria as
           action: 'submitEvaluation',
           sessionToken: evaluator.sessionToken,
           groupCode: 'GROUP-4',
-          researchPaperRating: null,
           pitchVideoRating: 4,
           posterRating: 3,
-          logoRating: 2,
+          logoRating: null,
+          subcriteriaRatings: {
+            ...validSubcriteriaRatings,
+            logo_relevance_identity: null,
+            logo_creativity_originality: null,
+            logo_visual_appeal_clarity: null,
+          },
         }),
       },
     }).content);
     assert.equal(accepted.success, true, accepted.message);
     const saved = backend.sheets.Evaluations.at(-1);
-    assert.equal(saved[3], '');
-    assert.equal(saved[4], 4);
-    assert.equal(saved[5], 3);
-    assert.equal(saved[6], 2);
+    assert.equal(saved[3], 4);
+    assert.equal(saved[4], 3);
+    assert.equal(saved[5], '');
   }
 });
 
@@ -403,10 +620,10 @@ test('updated Students and Groups headers preserve group access and project data
         action: 'submitEvaluation',
         sessionToken: 'test-token',
         groupCode: 'GROUP-1',
-        researchPaperRating: 4,
         pitchVideoRating: 4,
         posterRating: 4,
         logoRating: 4,
+        subcriteriaRatings: validSubcriteriaRatings,
       }),
     },
   });

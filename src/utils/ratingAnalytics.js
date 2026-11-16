@@ -1,10 +1,14 @@
 import { evaluationCriteria } from '../data/settings.js';
+import { evaluationSubcriteria } from '../data/evaluationRubric.js';
 
 const scoreIsValid = (score) => Number.isFinite(score) && score >= 1 && score <= 5;
 
 export function summarizeRatings(evaluations, projects, filters = {}) {
   const { source = 'both', categoryId = 'all', groupId = 'all' } = filters;
   const categories = evaluationCriteria.filter((criterion) => categoryId === 'all' || criterion.id === categoryId);
+  const subcriteria = evaluationSubcriteria.filter((criterion) => (
+    categoryId === 'all' || criterion.categoryId === categoryId
+  ));
   const projectByGroup = new Map(projects.map((project) => [
     project.groupId,
     project.group?.groupName || project.title || project.groupId,
@@ -47,6 +51,16 @@ export function summarizeRatings(evaluations, projects, filters = {}) {
         count: scores.length,
       };
     });
+    const subcriterionAverages = subcriteria.map((criterion) => {
+      const scores = groupEvaluations
+        .map((evaluation) => evaluation.subcriteriaRatings?.[criterion.id])
+        .filter(scoreIsValid);
+      return {
+        criterionId: criterion.id,
+        average: scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null,
+        count: scores.length,
+      };
+    });
     const evaluationScores = groupEvaluations.map((evaluation) => {
       const scores = categories
         .map((criterion) => evaluation.ratings[criterion.id])
@@ -58,14 +72,59 @@ export function summarizeRatings(evaluations, projects, filters = {}) {
       groupId: id,
       groupName: projectByGroup.get(id) || id,
       categories: categoryAverages,
+      subcriteria: subcriterionAverages,
       average: evaluationScores.reduce((sum, score) => sum + score, 0) / evaluationScores.length,
       count: evaluationScores.length,
     };
   }).filter(Boolean).sort((a, b) => b.average - a.average || a.groupName.localeCompare(b.groupName));
 
+  const categoryAverages = categories.map((criterion) => {
+    const scores = filtered
+      .map((evaluation) => evaluation.ratings[criterion.id])
+      .filter(scoreIsValid);
+    return {
+      criterion,
+      average: scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null,
+      count: scores.length,
+    };
+  });
+  const subcriterionSummaries = subcriteria.map((criterion) => {
+    const evaluationsWithScore = filtered.filter((evaluation) =>
+      scoreIsValid(evaluation.subcriteriaRatings?.[criterion.id])
+    );
+    const scores = evaluationsWithScore.map((evaluation) =>
+      evaluation.subcriteriaRatings[criterion.id]
+    );
+    const groups = groupIds.map((id) => {
+      const groupScores = evaluationsWithScore
+        .filter((evaluation) => evaluation.evaluatedGroupId === id)
+        .map((evaluation) => evaluation.subcriteriaRatings[criterion.id]);
+      if (!groupScores.length) return null;
+      return {
+        groupId: id,
+        groupName: projectByGroup.get(id) || id,
+        average: groupScores.reduce((sum, score) => sum + score, 0) / groupScores.length,
+        count: groupScores.length,
+      };
+    }).filter(Boolean).sort((a, b) => b.average - a.average || a.groupName.localeCompare(b.groupName));
+    return {
+      ...criterion,
+      average: scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null,
+      count: scores.length,
+      groups,
+    };
+  });
+  const ratedSubcriteria = subcriterionSummaries.filter((criterion) => criterion.average !== null);
+  const highestSubcriterionScore = Math.max(...ratedSubcriteria.map((criterion) => criterion.average));
+  const lowestSubcriterionScore = Math.min(...ratedSubcriteria.map((criterion) => criterion.average));
+
   return {
     evaluationCount: filtered.length,
     categories: categories.map(summarizeCategory),
+    categoryAverages,
+    subcriteria: subcriterionSummaries,
+    strongestSubcriteria: ratedSubcriteria.filter((criterion) => criterion.average === highestSubcriterionScore),
+    weakestSubcriteria: ratedSubcriteria.filter((criterion) => criterion.average === lowestSubcriterionScore),
     overallGroups,
   };
 }
