@@ -19,7 +19,7 @@ const identifierLabels = {
   Faculty: 'Faculty ID',
 };
 const identifierPlaceholders = {
-  Student: 'Enter your Student ID',
+  Student: 'xx-xxxx-xxx',
   Faculty: 'Faculty ID or Guest',
 };
 

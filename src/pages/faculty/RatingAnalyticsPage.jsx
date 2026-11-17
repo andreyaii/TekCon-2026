@@ -67,13 +67,13 @@ export default function RatingAnalyticsPage() {
             </span>
           </label>
           <label className="block text-sm font-semibold">
-            Project group
+            Software name
             <span className="relative mt-1.5 block">
               <select className="form-input appearance-none pr-10" value={groupId} onChange={(event) => setGroupId(event.target.value)}>
                 <option value="all">All groups</option>
                 {data.projects.map((project) => (
                   <option key={project.groupId} value={project.groupId}>
-                    {project.group?.groupName || project.title || project.groupId}
+                    {project.title || project.groupId}
                   </option>
                 ))}
               </select>
@@ -196,51 +196,11 @@ export default function RatingAnalyticsPage() {
         )}
       </section>
 
-      <section className="card mb-6 overflow-hidden">
-        <div className="border-b border-line px-4 py-4 sm:px-5">
-          <h2 className="text-lg font-bold">Group-level rubric breakdown</h2>
-          <p className="mt-1 text-sm text-muted">Average score by group for each individual subcriterion.</p>
-        </div>
-        {!summary.overallGroups.some((group) => group.subcriteria.some((criterion) => criterion.count > 0)) ? (
-          <p className="p-5 text-sm text-muted">No subcriterion ratings are available for these groups.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[38rem] text-left text-sm">
-              <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  <th scope="col" className="px-4 py-3 sm:px-5">Group</th>
-                  <th scope="col" className="px-4 py-3">Category</th>
-                  <th scope="col" className="px-4 py-3">Subcriterion</th>
-                  <th scope="col" className="px-4 py-3">Average</th>
-                  <th scope="col" className="px-4 py-3">Ratings</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {summary.overallGroups.flatMap((group) => group.subcriteria
-                  .filter((criterion) => criterion.count > 0)
-                  .map((criterion) => {
-                    const rubricCriterion = summary.subcriteria.find((item) => item.id === criterion.criterionId);
-                    return (
-                      <tr key={`${group.groupId}-${criterion.criterionId}`}>
-                        <th scope="row" className="px-4 py-3 font-semibold sm:px-5">{group.groupName}</th>
-                        <td className="px-4 py-3">{rubricCriterion?.criterion}</td>
-                        <td className="px-4 py-3">{rubricCriterion?.label}</td>
-                        <td className="px-4 py-3 font-bold">{formatScore(criterion.average)}</td>
-                        <td className="px-4 py-3 text-muted">{criterion.count}</td>
-                      </tr>
-                    );
-                  }))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
       <section className="card overflow-hidden">
         <div className="border-b border-line px-4 py-4 sm:px-5">
           <h2 className="text-lg font-bold">Overall group comparison</h2>
           <p className="mt-1 text-sm text-muted">
-            Groups ranked by average score across {selectedCategory ? selectedCategory.label : 'the selected categories'}.
+            Software ranked by average score across {selectedCategory ? selectedCategory.label : 'the selected categories'}.
           </p>
         </div>
         {summary.overallGroups.length === 0 ? (
@@ -250,7 +210,7 @@ export default function RatingAnalyticsPage() {
             <table className="w-full min-w-[36rem] text-left text-sm">
               <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
                 <tr>
-                  <th scope="col" className="px-4 py-3 sm:px-5">Rank / group</th>
+                  <th scope="col" className="px-4 py-3 sm:px-5">Rank / software</th>
                   {summary.categories.map(({ criterion }) => (
                     <th scope="col" key={criterion.id} className="px-4 py-3">{criterion.label}</th>
                   ))}

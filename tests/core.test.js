@@ -299,15 +299,15 @@ test('rating analytics ranks live records by evaluator source and selected categ
     { evaluatorType: 'unknown', evaluatedGroupId: 'GROUP-B', ratings: { c2: 4, c3: 4, c4: 4 } },
   ];
   const projects = [
-    { groupId: 'GROUP-A', title: 'Group A' },
-    { groupId: 'GROUP-B', title: 'Group B' },
+    { groupId: ' group-a ', title: 'Software A', group: { groupName: 'GROUP-A' } },
+    { groupId: 'group-b', title: 'Software B', group: { groupName: 'GROUP-B' } },
   ];
 
   const combined = summarizeRatings(evaluations, projects);
   assert.equal(combined.evaluationCount, 3);
-  assert.equal(combined.categories[0].leaders[0].groupName, 'Group A');
+  assert.equal(combined.categories[0].leaders[0].groupName, 'Software A');
   assert.equal(combined.categories[0].leaders[0].average, 4.5);
-  assert.equal(combined.overallGroups[0].groupName, 'Group A');
+  assert.equal(combined.overallGroups[0].groupName, 'Software A');
 
   const facultyPitch = summarizeRatings(evaluations, projects, {
     source: 'faculty',
@@ -315,7 +315,7 @@ test('rating analytics ranks live records by evaluator source and selected categ
   });
   assert.equal(facultyPitch.evaluationCount, 1);
   assert.equal(facultyPitch.categories.length, 1);
-  assert.equal(facultyPitch.categories[0].leaders[0].groupName, 'Group A');
+  assert.equal(facultyPitch.categories[0].leaders[0].groupName, 'Software A');
   assert.equal(facultyPitch.categories[0].leaders[0].average, 5);
 
   const rubric = summarizeRatings([
@@ -331,7 +331,7 @@ test('rating analytics ranks live records by evaluator source and selected categ
     },
   ], projects);
   assert.equal(rubric.subcriteria[0].average, 5);
-  assert.equal(rubric.subcriteria[0].groups[0].groupName, 'Group A');
+  assert.equal(rubric.subcriteria[0].groups[0].groupName, 'Software A');
   assert.equal(rubric.overallGroups[0].subcriteria[0].average, 5);
   assert.equal(rubric.categoryAverages.find((item) => item.criterion.id === 'c4').average, 4);
   assert.deepEqual(rubric.strongestSubcriteria.map((criterion) => criterion.id), ['logo_relevance_identity']);

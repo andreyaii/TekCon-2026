@@ -2,6 +2,7 @@ import { evaluationCriteria } from '../data/settings.js';
 import { evaluationSubcriteria } from '../data/evaluationRubric.js';
 
 const scoreIsValid = (score) => Number.isFinite(score) && score >= 1 && score <= 5;
+const normalizeGroupId = (value) => String(value || '').trim().replace(/\s+/g, '').toUpperCase();
 
 export function summarizeRatings(evaluations, projects, filters = {}) {
   const { source = 'both', categoryId = 'all', groupId = 'all' } = filters;
@@ -10,24 +11,24 @@ export function summarizeRatings(evaluations, projects, filters = {}) {
     categoryId === 'all' || criterion.categoryId === categoryId
   ));
   const projectByGroup = new Map(projects.map((project) => [
-    project.groupId,
-    project.group?.groupName || project.title || project.groupId,
+    normalizeGroupId(project.groupId),
+    String(project.title || project.group?.groupName || project.groupId || '').trim(),
   ]));
   const filtered = evaluations.filter((evaluation) => (
     (source === 'both' || evaluation.evaluatorType === source)
-    && (groupId === 'all' || evaluation.evaluatedGroupId === groupId)
+    && (groupId === 'all' || normalizeGroupId(evaluation.evaluatedGroupId) === normalizeGroupId(groupId))
   ));
   const groupIds = [...new Set(filtered.map((evaluation) => evaluation.evaluatedGroupId))];
   const summarizeCategory = (criterion) => {
     const groups = groupIds.map((id) => {
       const scores = filtered
-        .filter((evaluation) => evaluation.evaluatedGroupId === id)
+        .filter((evaluation) => normalizeGroupId(evaluation.evaluatedGroupId) === normalizeGroupId(id))
         .map((evaluation) => evaluation.ratings[criterion.id])
         .filter(scoreIsValid);
       if (!scores.length) return null;
       return {
         groupId: id,
-        groupName: projectByGroup.get(id) || id,
+        groupName: projectByGroup.get(normalizeGroupId(id)) || id,
         average: scores.reduce((sum, score) => sum + score, 0) / scores.length,
         count: scores.length,
       };
@@ -40,7 +41,7 @@ export function summarizeRatings(evaluations, projects, filters = {}) {
     };
   };
   const overallGroups = groupIds.map((id) => {
-    const groupEvaluations = filtered.filter((evaluation) => evaluation.evaluatedGroupId === id);
+    const groupEvaluations = filtered.filter((evaluation) => normalizeGroupId(evaluation.evaluatedGroupId) === normalizeGroupId(id));
     const categoryAverages = categories.map((criterion) => {
       const scores = groupEvaluations
         .map((evaluation) => evaluation.ratings[criterion.id])
@@ -70,7 +71,7 @@ export function summarizeRatings(evaluations, projects, filters = {}) {
     if (!evaluationScores.length) return null;
     return {
       groupId: id,
-      groupName: projectByGroup.get(id) || id,
+      groupName: projectByGroup.get(normalizeGroupId(id)) || id,
       categories: categoryAverages,
       subcriteria: subcriterionAverages,
       average: evaluationScores.reduce((sum, score) => sum + score, 0) / evaluationScores.length,
@@ -97,12 +98,12 @@ export function summarizeRatings(evaluations, projects, filters = {}) {
     );
     const groups = groupIds.map((id) => {
       const groupScores = evaluationsWithScore
-        .filter((evaluation) => evaluation.evaluatedGroupId === id)
+        .filter((evaluation) => normalizeGroupId(evaluation.evaluatedGroupId) === normalizeGroupId(id))
         .map((evaluation) => evaluation.subcriteriaRatings[criterion.id]);
       if (!groupScores.length) return null;
       return {
         groupId: id,
-        groupName: projectByGroup.get(id) || id,
+        groupName: projectByGroup.get(normalizeGroupId(id)) || id,
         average: groupScores.reduce((sum, score) => sum + score, 0) / groupScores.length,
         count: groupScores.length,
       };
