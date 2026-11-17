@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronLeft, ChevronRight, Search, SlidersHorizontal } from 'lucide-react';
 import ProjectCard from './ProjectCard';
 import { EmptyState } from './Feedback';
@@ -7,11 +8,20 @@ import { useSettings } from '../context/SettingsContext';
 // Search + category filter + sort over project cards. Shared by Explore and All Projects.
 export default function ProjectBrowser({ projects, aggregates = {}, linkFor, badgeFor, fullCardLink = false, paginate = false }) {
   const { ratingsShown } = useSettings();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [sort, setSort] = useState('default');
   const [pageSize, setPageSize] = useState(6);
-  const [page, setPage] = useState(1);
+  const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
+
+  const setPage = (nextPage, { replace = false } = {}) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextPage === 1) nextParams.delete('page');
+    else nextParams.set('page', String(nextPage));
+    setSearchParams(nextParams, { replace });
+  };
 
   const categories = useMemo(
     () => [...new Set(projects.map((project) => project.category).filter(Boolean))].sort(),
@@ -50,17 +60,17 @@ export default function ProjectBrowser({ projects, aggregates = {}, linkFor, bad
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <input className="form-input pl-9" placeholder="Search title, description, category, or group" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} aria-label="Search projects" />
+            <input className="form-input pl-9" placeholder="Search title, description, category, or group" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1, { replace: true }); }} aria-label="Search projects" />
           </div>
           <label className="relative block min-w-0">
-            <select className="form-input min-w-0 appearance-none pr-9 sm:w-auto" value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} aria-label="Filter by category">
+            <select className="form-input min-w-0 appearance-none pr-9 sm:w-auto" value={category} onChange={(e) => { setCategory(e.target.value); setPage(1, { replace: true }); }} aria-label="Filter by category">
               <option value="all">All Categories</option>
               {categories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
           </label>
           <label className="relative block min-w-0">
-            <select className="form-input min-w-0 appearance-none pr-9 sm:w-auto" value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }} aria-label="Sort projects">
+            <select className="form-input min-w-0 appearance-none pr-9 sm:w-auto" value={sort} onChange={(e) => { setSort(e.target.value); setPage(1, { replace: true }); }} aria-label="Sort projects">
               <option value="default">Group order</option>
               <option value="title-asc">Title A–Z</option>
               <option value="title-desc">Title Z–A</option>
@@ -75,7 +85,15 @@ export default function ProjectBrowser({ projects, aggregates = {}, linkFor, bad
         {visible.length === 0 ? (
           <EmptyState title="No projects found" message="Try a different search term or category." />
         ) : pageProjects.map((p) => (
-          <ProjectCard key={p.id} project={p} to={linkFor(p)} aggregate={aggregates[p.groupId]} badge={badgeFor?.(p)} fullCardLink={fullCardLink} />
+          <ProjectCard
+            key={p.id}
+            project={p}
+            to={linkFor(p)}
+            state={{ from: `${location.pathname}${location.search}` }}
+            aggregate={aggregates[p.groupId]}
+            badge={badgeFor?.(p)}
+            fullCardLink={fullCardLink}
+          />
         ))}
       </div>
       {paginate && (
@@ -88,7 +106,7 @@ export default function ProjectBrowser({ projects, aggregates = {}, linkFor, bad
               value={pageSize}
               onChange={(event) => {
                 setPageSize(Number(event.target.value));
-                setPage(1);
+                setPage(1, { replace: true });
               }}
               aria-label="Cards per page"
             >

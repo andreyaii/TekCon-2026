@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState } from 'react';
 import { ArrowLeft, CheckCircle2, Lock } from 'lucide-react';
 import Modal from '../../components/Modal';
@@ -68,6 +68,7 @@ function ReceivedEvaluations({ evaluations }) {
 // Shared by /student/projects/:id and /faculty/projects/:id.
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
+  const location = useLocation();
   const { user } = useAuth();
   const [logoPreviewUrl, setLogoPreviewUrl] = useState('');
   const student = isStudent(user);
@@ -97,8 +98,14 @@ export default function ProjectDetailPage() {
   if (error) return <ErrorState error={error} onRetry={reload} />;
   const { project, aggregate, eligibility, status, received } = data;
 
+  const projectsPath = student ? `${base}/explore` : `${base}/all-projects`;
+  const returnPath = location.state?.from;
+  const backToProjects = typeof returnPath === 'string'
+    && (returnPath === projectsPath || returnPath.startsWith(`${projectsPath}?`))
+    ? returnPath
+    : projectsPath;
   const back = (
-    <Link to={student ? `${base}/explore` : `${base}/all-projects`} className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-primary">
+    <Link to={backToProjects} className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-primary">
       <ArrowLeft className="h-4 w-4" /> Back to projects
     </Link>
   );
