@@ -73,6 +73,7 @@ export default function MyGroupPage() {
         <GroupProjectPanel
           project={data.project}
           aggregate={data.aggregates[user.groupId]}
+          showRating={false}
           onDescriptionSave={handleDescriptionSave}
           onLogoClick={(url) => setLogoPreview({ url, title: data.project.title })}
         />

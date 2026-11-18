@@ -4,15 +4,13 @@ import PageHeader from '../../components/PageHeader';
 import EvaluationCounter from '../../components/EvaluationCounter';
 import { Loading, ErrorState, EmptyState } from '../../components/Feedback';
 import { useAuth } from '../../context/AuthContext';
-import { useSettings } from '../../context/SettingsContext';
 import { useAsync } from '../../hooks/useAsync';
 import { getProjects } from '../../services/projectService';
 import { getStudentEvaluationData } from '../../services/evaluationService';
-import { formatDate, formatScore } from '../../utils/ratings';
+import { formatDate } from '../../utils/ratings';
 
 export default function MyEvaluationsPage() {
   const { user } = useAuth();
-  const { ratingsShown, ratingsHiddenReason } = useSettings();
   const { data, loading, error, reload } = useAsync(async (force) => {
     const [evaluationData, projects] = await Promise.all([
       getStudentEvaluationData(user.id),
@@ -33,7 +31,6 @@ export default function MyEvaluationsPage() {
     <>
       <PageHeader title="My Evaluations" subtitle="Your submitted evaluations. Submitted evaluations cannot be edited." />
       <div className="mb-5"><EvaluationCounter status={data.status} /></div>
-      {!ratingsShown && <p className="mb-4 rounded-[10px] bg-white p-3 text-sm text-muted card">{ratingsHiddenReason}</p>}
 
       {data.evaluations.length === 0 ? (
         <div className="card"><EmptyState icon={ClipboardList} title="No evaluations yet" message="Evaluate projects from the Explore page." action={<Link to="/student/explore" className="btn-primary">Explore Projects</Link>} /></div>
@@ -51,9 +48,8 @@ export default function MyEvaluationsPage() {
                     </div>
                     <span className="badge-green shrink-0">Submitted</span>
                   </div>
-                  <div className="mt-4 flex items-center justify-between border-t border-line pt-3 text-sm">
+                  <div className="mt-4 border-t border-line pt-3 text-sm">
                     <span className="text-xs text-muted">{formatDate(e.submittedAt)}</span>
-                    <span className="font-bold text-star">{ratingsShown ? formatScore(e.overallScore) : <span className="font-normal text-muted">Rating hidden</span>}</span>
                   </div>
                 </article>
               );
@@ -61,7 +57,7 @@ export default function MyEvaluationsPage() {
           </div>
           <div className="card hidden overflow-hidden md:block">
             <table className="w-full text-left text-sm">
-              <thead className="bg-surface/70"><tr className="border-b border-line text-xs font-semibold text-muted"><th className="px-4 py-3">Project</th><th className="px-4 py-3">Group</th><th className="px-4 py-3">Submitted</th><th className="px-4 py-3">Overall rating</th><th className="px-4 py-3">Status</th></tr></thead>
+              <thead className="bg-surface/70"><tr className="border-b border-line text-xs font-semibold text-muted"><th className="px-4 py-3">Project</th><th className="px-4 py-3">Group</th><th className="px-4 py-3">Submitted</th><th className="px-4 py-3">Status</th></tr></thead>
               <tbody>
                 {data.evaluations.map((e) => {
                   const p = projectOf(e.evaluatedGroupId);
@@ -70,7 +66,6 @@ export default function MyEvaluationsPage() {
                       <td className="px-4 py-3 font-semibold">{p ? <Link className="hover:text-primary" to={`/student/projects/${p.id}`}>{p.title}</Link> : '–'}</td>
                       <td className="px-4 py-3 text-muted">{p?.group?.groupName || '–'}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted">{formatDate(e.submittedAt)}</td>
-                      <td className="px-4 py-3 font-bold text-star">{ratingsShown ? formatScore(e.overallScore) : <span className="font-normal text-muted">Hidden</span>}</td>
                       <td className="px-4 py-3"><span className="badge-green">Submitted</span></td>
                     </tr>
                   );

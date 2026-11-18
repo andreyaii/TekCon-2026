@@ -11,9 +11,9 @@ import { getProjectLogoUrl } from '../src/utils/projectLogo.js';
 import { hasCriterionSubmission } from '../src/utils/evaluationResources.js';
 import { getSafeResourceUrl } from '../src/utils/resourceUrl.js';
 import { isProjectAssignedToFaculty } from '../src/utils/faculty.js';
-import { isGuest, isFaculty, isStudent, isAdmin, canViewRatings, canToggleRatings, homePathFor, basePathFor, ratingsHiddenReason } from '../src/utils/roles.js';
+import { isGuest, isFaculty, isStudent, isAdmin, canViewRatings, canToggleRatings, homePathFor, basePathFor } from '../src/utils/roles.js';
 import { guestNav } from '../src/config/navigation.js';
-import { summarizeRatings } from '../src/utils/ratingAnalytics.js';
+import { sortOverallGroups, summarizeRatings } from '../src/utils/ratingAnalytics.js';
 import { login } from '../src/services/authService.js';
 
 const entries = new Map();
@@ -308,6 +308,10 @@ test('rating analytics ranks live records by evaluator source and selected categ
   assert.equal(combined.categories[0].leaders[0].groupName, 'Software A');
   assert.equal(combined.categories[0].leaders[0].average, 4.5);
   assert.equal(combined.overallGroups[0].groupName, 'Software A');
+  assert.deepEqual(
+    sortOverallGroups(combined.overallGroups, 'evaluations').map((group) => group.groupName),
+    ['Software A', 'Software B'],
+  );
 
   const facultyPitch = summarizeRatings(evaluations, projects, {
     source: 'faculty',
@@ -333,10 +337,35 @@ test('rating analytics ranks live records by evaluator source and selected categ
   assert.equal(rubric.subcriteria[0].average, 5);
   assert.equal(rubric.subcriteria[0].groups[0].groupName, 'Software A');
   assert.equal(rubric.overallGroups[0].subcriteria[0].average, 5);
+  assert.equal(rubric.overallGroups[0].count, 1);
   assert.equal(rubric.categoryAverages.find((item) => item.criterion.id === 'c4').average, 4);
   assert.deepEqual(rubric.strongestSubcriteria.map((criterion) => criterion.id), ['logo_relevance_identity']);
   assert.deepEqual(rubric.weakestSubcriteria.map((criterion) => criterion.id), ['logo_visual_appeal_clarity']);
   assert.equal(calcOverall({ c2: 5, c3: 3, c4: 4 }), 4);
+});
+
+test('overall group evaluation ranking counts every received evaluation', () => {
+  const summary = summarizeRatings([
+    { evaluatorType: 'student', evaluatedGroupId: 'A', ratings: { c2: 5, c3: null, c4: null } },
+    { evaluatorType: 'student', evaluatedGroupId: 'A', ratings: { c2: null, c3: 4, c4: null } },
+  ], [], { categoryId: 'c2' });
+  assert.equal(summary.overallGroups[0].average, 5);
+  assert.equal(summary.overallGroups[0].count, 2);
+
+  const groups = [
+    { groupId: 'A', groupName: 'Group A', average: 4.5, count: 2 },
+    { groupId: 'B', groupName: 'Group B', average: 4, count: 3 },
+    { groupId: 'C', groupName: 'Group C', average: 4, count: 3 },
+  ];
+
+  assert.deepEqual(
+    sortOverallGroups(groups, 'evaluations').map((group) => group.groupName),
+    ['Group B', 'Group C', 'Group A'],
+  );
+  assert.deepEqual(
+    sortOverallGroups(groups).map((group) => group.groupName),
+    ['Group A', 'Group B', 'Group C'],
+  );
 });
 
 test('rating analytics service rejects non-admin sessions before requesting sheet data', async () => {
@@ -715,9 +744,6 @@ test('rating visibility is strictly limited to faculty admins', () => {
   assert.equal(canViewRatings(adviser), false);
   assert.equal(canViewRatings(guest), false);
   assert.equal(canToggleRatings(), false);
-  assert.match(ratingsHiddenReason(student), /visible only to system administrators/i);
-  assert.match(ratingsHiddenReason(adviser), /visible only to system administrators/i);
-  assert.match(ratingsHiddenReason(guest), /visible only to system administrators/i);
 });
 
 test('faculty advisers cannot rate their assigned groups but can rate other groups', async () => {

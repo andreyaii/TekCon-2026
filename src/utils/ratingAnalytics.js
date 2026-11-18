@@ -75,7 +75,7 @@ export function summarizeRatings(evaluations, projects, filters = {}) {
       categories: categoryAverages,
       subcriteria: subcriterionAverages,
       average: evaluationScores.reduce((sum, score) => sum + score, 0) / evaluationScores.length,
-      count: evaluationScores.length,
+      count: groupEvaluations.length,
     };
   }).filter(Boolean).sort((a, b) => b.average - a.average || a.groupName.localeCompare(b.groupName));
 
@@ -128,4 +128,13 @@ export function summarizeRatings(evaluations, projects, filters = {}) {
     weakestSubcriteria: ratedSubcriteria.filter((criterion) => criterion.average === lowestSubcriterionScore),
     overallGroups,
   };
+}
+
+export function sortOverallGroups(groups, sortBy = 'average') {
+  return [...groups].sort((a, b) => {
+    if (sortBy === 'evaluations') {
+      return b.count - a.count || b.average - a.average || a.groupName.localeCompare(b.groupName);
+    }
+    return b.average - a.average || a.groupName.localeCompare(b.groupName);
+  });
 }

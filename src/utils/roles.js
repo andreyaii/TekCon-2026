@@ -31,8 +31,3 @@ export const basePathFor = (u) => {
 export function canViewRatings(user) {
   return isAdmin(user);
 }
-
-export function ratingsHiddenReason(user) {
-  if (isAdmin(user)) return '';
-  return 'Ratings are confidential and visible only to system administrators.';
-}

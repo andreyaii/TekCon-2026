@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import { ErrorState } from '../../components/Feedback';
 import { RatingAnalyticsSkeleton } from '../../components/skeletons/PageSkeletons';
@@ -9,13 +9,20 @@ import { getAdminRatingAnalytics } from '../../services/evaluationService';
 import { getProjects } from '../../services/projectService';
 import { evaluationCriteria } from '../../data/settings';
 import { formatScore } from '../../utils/ratings';
-import { summarizeRatings } from '../../utils/ratingAnalytics';
+import { sortOverallGroups, summarizeRatings } from '../../utils/ratingAnalytics';
+
+const GROUPS_PER_PAGE = 10;
 
 export default function RatingAnalyticsPage() {
   const { user } = useAuth();
   const [source, setSource] = useState('both');
   const [categoryId, setCategoryId] = useState('all');
   const [groupId, setGroupId] = useState('all');
+  const [overallSortBy, setOverallSortBy] = useState('average');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [openCategories, setOpenCategories] = useState(
+    () => new Set(evaluationCriteria.map((criterion) => criterion.id)),
+  );
   const { data, loading, error, reload } = useAsync(
     async (refresh) => {
       const [evaluations, projects] = await Promise.all([
@@ -27,12 +34,37 @@ export default function RatingAnalyticsPage() {
     [user?.id],
     `rating-analytics:${user?.id}`,
   );
+  const summary = useMemo(
+    () => data
+      ? summarizeRatings(data.evaluations, data.projects, { source, categoryId, groupId })
+      : null,
+    [data, source, categoryId, groupId],
+  );
+  const overallGroups = useMemo(
+    () => summary ? sortOverallGroups(summary.overallGroups, overallSortBy) : [],
+    [summary, overallSortBy],
+  );
 
   if (loading) return <RatingAnalyticsSkeleton />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
 
-  const summary = summarizeRatings(data.evaluations, data.projects, { source, categoryId, groupId });
+  const pageCount = Math.max(1, Math.ceil(overallGroups.length / GROUPS_PER_PAGE));
+  const page = Math.min(currentPage, pageCount);
+  const visibleGroups = overallGroups.slice((page - 1) * GROUPS_PER_PAGE, page * GROUPS_PER_PAGE);
+  const firstGroup = overallGroups.length ? (page - 1) * GROUPS_PER_PAGE + 1 : 0;
+  const lastGroup = Math.min(page * GROUPS_PER_PAGE, overallGroups.length);
   const selectedCategory = evaluationCriteria.find((criterion) => criterion.id === categoryId);
+  const toggleCategory = (categoryIdToToggle) => {
+    setOpenCategories((currentOpenCategories) => {
+      const nextOpenCategories = new Set(currentOpenCategories);
+      if (nextOpenCategories.has(categoryIdToToggle)) {
+        nextOpenCategories.delete(categoryIdToToggle);
+      } else {
+        nextOpenCategories.add(categoryIdToToggle);
+      }
+      return nextOpenCategories;
+    });
+  };
 
   return (
     <>
@@ -41,158 +73,115 @@ export default function RatingAnalyticsPage() {
         subtitle="Compare group performance using evaluation ratings recorded in the system."
       />
 
-      <section className="card mb-6 p-4 sm:p-5" aria-label="Rating analytics filters">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block text-sm font-semibold">
-            Submitted by
-            <span className="relative mt-1.5 block">
-              <select className="form-input appearance-none pr-10" value={source} onChange={(event) => setSource(event.target.value)}>
-                <option value="both">Both (combined)</option>
-                <option value="faculty">Faculty</option>
-                <option value="student">Students</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-            </span>
-          </label>
-          <label className="block text-sm font-semibold">
-            Evaluation category
-            <span className="relative mt-1.5 block">
-              <select className="form-input appearance-none pr-10" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-                <option value="all">All categories</option>
-                {evaluationCriteria.map((criterion) => (
-                  <option key={criterion.id} value={criterion.id}>{criterion.label}</option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-            </span>
-          </label>
-          <label className="block text-sm font-semibold">
-            Software name
-            <span className="relative mt-1.5 block">
-              <select className="form-input appearance-none pr-10" value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-                <option value="all">All groups</option>
-                {data.projects.map((project) => (
-                  <option key={project.groupId} value={project.groupId}>
-                    {project.title || project.groupId}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-            </span>
-          </label>
-        </div>
-        <p className="mt-4 text-xs text-muted" role="status">
-          {summary.evaluationCount} {summary.evaluationCount === 1 ? 'evaluation' : 'evaluations'} match the selected source and group filters.
-        </p>
-      </section>
-
       <section className="card mb-6 overflow-hidden">
         <div className="border-b border-line px-4 py-4 sm:px-5">
-          <h2 className="text-lg font-bold">Major category averages and leaders</h2>
+          <h2 className="text-lg font-bold">Evaluation category breakdown</h2>
           <p className="mt-1 text-sm text-muted">
-            Equal-weight subcriterion averages are saved as the Logo, Poster, and Video Pitch category scores.
+            Category rows show the average, top group, and total ratings; subcriteria show individual averages on a 1–5 scale.
           </p>
         </div>
         {summary.categories.length === 0 ? (
-          <p className="p-5 text-sm text-muted">No evaluation categories are available.</p>
-        ) : (
-          <div className="divide-y divide-line">
-            {summary.categories.map(({ criterion, leaders }) => {
-              const categoryAverage = summary.categoryAverages.find((item) => item.criterion.id === criterion.id);
-              return (
-                <div key={criterion.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-                  <div>
-                    <p className="font-semibold">{criterion.label}</p>
-                    <p className="mt-0.5 text-xs text-muted">
-                      Overall average: {categoryAverage?.average === null || categoryAverage?.average === undefined ? '–' : formatScore(categoryAverage.average)}
-                      {categoryAverage?.count ? ` · ${categoryAverage.count} rating${categoryAverage.count === 1 ? '' : 's'}` : ''}
-                    </p>
-                  </div>
-                  {leaders.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {leaders.map((leader) => (
-                        <span key={leader.groupId} className="badge-primary">
-                          Top: {leader.groupName} · {formatScore(leader.average)} ({leader.count})
-                        </span>
-                      ))}
-                    </div>
-                  ) : <span className="text-sm text-muted">No ratings yet</span>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className="card mb-6 overflow-hidden">
-        <div className="border-b border-line px-4 py-4 sm:px-5">
-          <h2 className="text-lg font-bold">Rubric subcriterion analytics</h2>
-          <p className="mt-1 text-sm text-muted">Average individual subcriterion ratings and identify the strongest and weakest areas.</p>
-        </div>
-        {summary.subcriteria.length === 0 ? (
           <p className="p-5 text-sm text-muted">No rubric subcriteria match these filters.</p>
         ) : (
-          <>
-            <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-2 sm:p-5">
-              <div className="rounded-lg bg-emerald-50 p-3">
-                <p className="text-xs font-semibold text-emerald-800">Strongest subcriterion</p>
-                {summary.strongestSubcriteria.length ? summary.strongestSubcriteria.map((criterion) => (
-                  <p key={criterion.id} className="mt-1 text-sm font-bold text-emerald-950">
-                    {criterion.criterion} · {criterion.label} — {formatScore(criterion.average)}
-                  </p>
-                )) : <p className="mt-1 text-sm text-muted">No ratings yet</p>}
-              </div>
-              <div className="rounded-lg bg-amber-50 p-3">
-                <p className="text-xs font-semibold text-amber-800">Weakest subcriterion</p>
-                {summary.weakestSubcriteria.length ? summary.weakestSubcriteria.map((criterion) => (
-                  <p key={criterion.id} className="mt-1 text-sm font-bold text-amber-950">
-                    {criterion.criterion} · {criterion.label} — {formatScore(criterion.average)}
-                  </p>
-                )) : <p className="mt-1 text-sm text-muted">No ratings yet</p>}
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[42rem] text-left text-sm">
-                <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    <th scope="col" className="px-4 py-3 sm:px-5">Category</th>
-                    <th scope="col" className="px-4 py-3">Subcriterion</th>
-                    <th scope="col" className="px-4 py-3">Average</th>
-                    <th scope="col" className="px-4 py-3">Top group</th>
-                    <th scope="col" className="px-4 py-3">Ratings</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {summary.subcriteria.map((criterion, index) => {
-                    const startsCategory = index === 0
-                      || summary.subcriteria[index - 1].categoryId !== criterion.categoryId;
-                    const categoryRowCount = startsCategory
-                      ? summary.subcriteria.filter((item) => item.categoryId === criterion.categoryId).length
-                      : 0;
-                    return (
-                      <tr key={criterion.id}>
-                        {startsCategory && (
-                          <th
-                            scope="rowgroup"
-                            rowSpan={categoryRowCount}
-                            className="align-top px-4 py-3 font-bold text-primary sm:px-5"
-                          >
-                            {criterion.criterion}
-                          </th>
-                        )}
-                        <td className="px-4 py-3">{criterion.label}</td>
-                        <td className="px-4 py-3 font-bold">{criterion.average === null ? '–' : formatScore(criterion.average)}</td>
-                        <td className="px-4 py-3 text-muted">
-                          {criterion.groups[0] ? `${criterion.groups[0].groupName} · ${formatScore(criterion.groups[0].average)}` : '–'}
-                        </td>
-                        <td className="px-4 py-3 text-muted">{criterion.count}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[42rem] table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-[40%]" />
+                <col className="w-[18%]" />
+                <col className="w-[27%]" />
+                <col className="w-[15%]" />
+              </colgroup>
+              <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
+                <tr>
+                  <th scope="col" className="px-4 py-3 sm:px-5">Category / subcriterion</th>
+                  <th scope="col" className="px-4 py-3">Average (1–5)</th>
+                  <th scope="col" className="px-4 py-3">Top group</th>
+                  <th scope="col" className="px-4 py-3">Total ratings</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {summary.categories.map(({ criterion, leaders }) => {
+                  const categoryAverage = summary.categoryAverages.find((item) => item.criterion.id === criterion.id);
+                  const categorySubcriteria = summary.subcriteria.filter((item) => item.categoryId === criterion.id);
+                  const isOpen = openCategories.has(criterion.id);
+                  const subcriteriaId = `${criterion.id}-subcriteria`;
+                  return [
+                    <tr
+                      key={criterion.id}
+                      className="cursor-pointer bg-surface/60 hover:bg-surface"
+                      onClick={() => toggleCategory(criterion.id)}
+                    >
+                      <th scope="row" className="px-4 py-3 font-bold text-primary sm:px-5">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 text-left"
+                          aria-expanded={isOpen}
+                          aria-controls={subcriteriaId}
+                        >
+                          {isOpen
+                            ? <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            : <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                          {criterion.label}
+                        </button>
+                      </th>
+                      <td className="px-4 py-3 font-bold">
+                        {categoryAverage?.average === null || categoryAverage?.average === undefined
+                          ? '–'
+                          : formatScore(categoryAverage.average)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {leaders.length ? (
+                          <div className="flex flex-wrap gap-2">
+                            {leaders.map((leader) => (
+                              <span key={leader.groupId} className="badge-primary">
+                                {leader.groupName} · {formatScore(leader.average)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : <span className="text-muted">–</span>}
+                      </td>
+                      <td className="px-4 py-3 text-muted">{categoryAverage?.count || 0}</td>
+                    </tr>,
+                    <tr key={subcriteriaId} id={subcriteriaId} aria-hidden={!isOpen}>
+                      <td colSpan={4} className="p-0">
+                        <div
+                          className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+                        >
+                          <div className="min-h-0 overflow-hidden">
+                            <table className="w-full table-fixed text-left text-sm">
+                              <colgroup>
+                                <col className="w-[40%]" />
+                                <col className="w-[18%]" />
+                                <col className="w-[27%]" />
+                                <col className="w-[15%]" />
+                              </colgroup>
+                              <caption className="sr-only">{criterion.label} subcriteria</caption>
+                              <thead className="sr-only">
+                                <tr>
+                                  <th scope="col">Subcriterion</th>
+                                  <th scope="col">Average score</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-line">
+                                {categorySubcriteria.map((subcriterion) => (
+                                  <tr key={subcriterion.id}>
+                                    <td className="py-3 pl-10 pr-4 text-muted sm:pl-12">{subcriterion.label}</td>
+                                    <td className="px-4 py-3 font-semibold">
+                                      {subcriterion.average === null ? '–' : formatScore(subcriterion.average)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>,
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
@@ -200,8 +189,55 @@ export default function RatingAnalyticsPage() {
         <div className="border-b border-line px-4 py-4 sm:px-5">
           <h2 className="text-lg font-bold">Overall group comparison</h2>
           <p className="mt-1 text-sm text-muted">
-            Software ranked by average score across {selectedCategory ? selectedCategory.label : 'the selected categories'}.
+            {overallSortBy === 'average'
+              ? `Groups ranked by average rating across ${selectedCategory ? selectedCategory.label : 'the selected categories'} (higher is better).`
+              : 'Groups ranked by the number of evaluations received (more is better).'}
+            {' '}Scores use a 1–5 scale.
           </p>
+          <section className="mt-4 rounded-lg border border-line bg-white p-3 sm:p-4" aria-label="Rating analytics filters">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="block text-sm font-semibold">
+                Submitted by
+                <span className="relative mt-1.5 block">
+                  <select className="form-input appearance-none pr-10" value={source} onChange={(event) => { setSource(event.target.value); setCurrentPage(1); }}>
+                    <option value="both">Both (combined)</option>
+                    <option value="faculty">Faculty</option>
+                    <option value="student">Students</option>
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+                </span>
+              </label>
+              <label className="block text-sm font-semibold">
+                Evaluation category
+                <span className="relative mt-1.5 block">
+                  <select className="form-input appearance-none pr-10" value={categoryId} onChange={(event) => { setCategoryId(event.target.value); setCurrentPage(1); }}>
+                    <option value="all">All categories</option>
+                    {evaluationCriteria.map((criterion) => (
+                      <option key={criterion.id} value={criterion.id}>{criterion.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+                </span>
+              </label>
+              <label className="block text-sm font-semibold">
+                Software name
+                <span className="relative mt-1.5 block">
+                  <select className="form-input appearance-none pr-10" value={groupId} onChange={(event) => { setGroupId(event.target.value); setCurrentPage(1); }}>
+                    <option value="all">All groups</option>
+                    {data.projects.map((project) => (
+                      <option key={project.groupId} value={project.groupId}>
+                        {project.title || project.groupId}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+                </span>
+              </label>
+            </div>
+            <p className="mt-3 text-xs text-muted" role="status">
+              {summary.evaluationCount} {summary.evaluationCount === 1 ? 'evaluation' : 'evaluations'} match these filters.
+            </p>
+          </section>
         </div>
         {summary.overallGroups.length === 0 ? (
           <p className="p-5 text-sm text-muted">No ratings match these filters.</p>
@@ -214,15 +250,15 @@ export default function RatingAnalyticsPage() {
                   {summary.categories.map(({ criterion }) => (
                     <th scope="col" key={criterion.id} className="px-4 py-3">{criterion.label}</th>
                   ))}
-                  <th scope="col" className="px-4 py-3">Overall</th>
-                  <th scope="col" className="px-4 py-3">Ratings</th>
+                  <th scope="col" className="px-4 py-3">Overall (1–5)</th>
+                  <th scope="col" className="px-4 py-3">Evaluations received</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {summary.overallGroups.map((group, index) => (
+                {visibleGroups.map((group, index) => (
                   <tr key={group.groupId}>
                     <th scope="row" className="px-4 py-3 font-semibold sm:px-5">
-                      <span className="mr-2 text-muted">{index + 1}.</span>{group.groupName}
+                      <span className="mr-2 text-muted">{(page - 1) * GROUPS_PER_PAGE + index + 1}.</span>{group.groupName}
                     </th>
                     {group.categories.map((category) => (
                       <td key={category.criterionId} className="px-4 py-3">
@@ -237,6 +273,45 @@ export default function RatingAnalyticsPage() {
             </table>
           </div>
         )}
+        <div className="flex flex-col gap-3 border-t border-line px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <label className="flex items-center gap-2 text-sm font-semibold">
+            Rank groups by
+            <span className="relative block sm:w-56">
+              <select
+                className="form-input appearance-none pr-10"
+                value={overallSortBy}
+                onChange={(event) => { setOverallSortBy(event.target.value); setCurrentPage(1); }}
+              >
+                <option value="average">Average rating</option>
+                <option value="evaluations">Evaluations received</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+            </span>
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-muted">
+              Showing {firstGroup}–{lastGroup} of {overallGroups.length} groups
+            </span>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setCurrentPage(page - 1)}
+              disabled={page === 1}
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4" /> Previous
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setCurrentPage(page + 1)}
+              disabled={page === pageCount}
+              aria-label="Next page"
+            >
+              Next <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </section>
     </>
   );

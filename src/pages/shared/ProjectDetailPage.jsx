@@ -39,11 +39,9 @@ function EvaluateBox({ eligibility, status, projectId, isStudent }) {
 }
 
 function ReceivedEvaluations({ evaluations }) {
-  const { ratingsShown, ratingsHiddenReason } = useSettings();
   return (
     <section className="card p-5">
       <h2 className="mb-3 text-lg font-bold">Evaluations Received ({evaluations.length})</h2>
-      {!ratingsShown && <p className="mb-3 rounded-[10px] bg-surface p-3 text-sm text-muted">{ratingsHiddenReason} Scores are hidden; submitted evaluations are unchanged.</p>}
       {evaluations.length === 0 ? <p className="text-sm text-muted">No evaluations yet.</p> : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-left text-sm">
@@ -52,7 +50,7 @@ function ReceivedEvaluations({ evaluations }) {
               {evaluations.map((evaluation) => (
                 <tr key={evaluation.id} className="border-b border-line last:border-0 align-top">
                   <td className="py-2 pr-3"><span className="font-semibold">{evaluation.evaluatorName}</span><span className="block text-xs text-muted">{evaluation.evaluatorGroup}</span></td>
-                  <td className="pr-3 font-bold text-star">{ratingsShown ? formatScore(evaluation.overallScore) : 'Hidden'}</td>
+                  <td className="pr-3 font-bold text-star">{formatScore(evaluation.overallScore)}</td>
                   <td className="pr-3 text-muted">{evaluation.comments || '–'}</td>
                   <td className="whitespace-nowrap text-muted">{formatDate(evaluation.submittedAt)}</td>
                 </tr>
@@ -70,6 +68,7 @@ export default function ProjectDetailPage() {
   const { projectId } = useParams();
   const location = useLocation();
   const { user } = useAuth();
+  const { ratingsShown } = useSettings();
   const [logoPreviewUrl, setLogoPreviewUrl] = useState('');
   const student = isStudent(user);
   const faculty = isFaculty(user);
@@ -142,7 +141,7 @@ export default function ProjectDetailPage() {
         <section className="card space-y-3 p-5 sm:p-6"><h2 className="text-lg font-bold">Project resources</h2><ResourceLinks project={project} onLogoClick={setLogoPreviewUrl} /></section>
       </div>
 
-      <section className="card space-y-3 p-5 sm:p-6"><h2 className="text-lg font-bold">Rating</h2><RatingSummary aggregate={aggregate} variant="full" /></section>
+      {ratingsShown && <section className="card space-y-3 p-5 sm:p-6"><h2 className="text-lg font-bold">Rating</h2><RatingSummary aggregate={aggregate} /></section>}
 
       {!guest && (
         <section className="card space-y-3 p-5 sm:p-6">

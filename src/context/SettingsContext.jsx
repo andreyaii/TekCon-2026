@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as settingsService from '../services/settingsService';
 import { useAuth } from './AuthContext';
-import { canViewRatings, ratingsHiddenReason } from '../utils/roles';
+import { canViewRatings } from '../utils/roles';
 import { Loading, ErrorState } from '../components/Feedback';
 
 const SettingsContext = createContext(null);
@@ -34,7 +34,6 @@ export function SettingsProvider({ children }) {
     () => ({
       settings,
       ratingsShown: settings ? canViewRatings(user, settings) : false,
-      ratingsHiddenReason: settings ? ratingsHiddenReason(user, settings) : '',
       refresh,
     }),
     [settings, user, refresh]
