@@ -12,7 +12,7 @@ export default function ProjectThumb({ project, className = '' }) {
         <img
           src={imageUrl}
           alt={project.title}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-contain p-3"
           loading="lazy"
           onError={() => setFailedImageUrl(imageUrl)}
         />
