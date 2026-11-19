@@ -54,6 +54,7 @@ export default function RatingAnalyticsPage() {
   const firstGroup = overallGroups.length ? (page - 1) * GROUPS_PER_PAGE + 1 : 0;
   const lastGroup = Math.min(page * GROUPS_PER_PAGE, overallGroups.length);
   const selectedCategory = evaluationCriteria.find((criterion) => criterion.id === categoryId);
+  const topPerformer = summary?.overallGroups[0];
   const toggleCategory = (categoryIdToToggle) => {
     setOpenCategories((currentOpenCategories) => {
       const nextOpenCategories = new Set(currentOpenCategories);
@@ -73,11 +74,31 @@ export default function RatingAnalyticsPage() {
         subtitle="Compare group performance using evaluation ratings recorded in the system."
       />
 
+      <section
+        className="card mb-6 flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+        aria-label="System rating summary"
+      >
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Filtered evaluations</p>
+          <p className="mt-1 text-xl font-bold">{summary.evaluationCount.toLocaleString()}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Top performer</p>
+          {topPerformer ? (
+            <span className="badge-primary mt-1 inline-flex">
+              {topPerformer.groupName} · {formatScore(topPerformer.average)}
+            </span>
+          ) : (
+            <p className="mt-1 text-sm text-muted">No rated groups match these filters.</p>
+          )}
+        </div>
+      </section>
+
       <section className="card mb-6 overflow-hidden">
         <div className="border-b border-line px-4 py-4 sm:px-5">
           <h2 className="text-lg font-bold">Evaluation category breakdown</h2>
           <p className="mt-1 text-sm text-muted">
-            Category rows show the average, top group, and total ratings; subcriteria show individual averages on a 1–5 scale.
+            Category and subcriterion averages use a 1–5 scale.
           </p>
         </div>
         {summary.categories.length === 0 ? (
@@ -87,16 +108,14 @@ export default function RatingAnalyticsPage() {
             <table className="w-full min-w-[42rem] table-fixed text-left text-sm">
               <colgroup>
                 <col className="w-[40%]" />
-                <col className="w-[18%]" />
-                <col className="w-[27%]" />
-                <col className="w-[15%]" />
+                <col className="w-[25%]" />
+                <col className="w-[35%]" />
               </colgroup>
               <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th scope="col" className="px-4 py-3 sm:px-5">Category / subcriterion</th>
-                  <th scope="col" className="px-4 py-3">Average (1–5)</th>
+                  <th scope="col" className="px-4 py-3">Overall average (1–5)</th>
                   <th scope="col" className="px-4 py-3">Top group</th>
-                  <th scope="col" className="px-4 py-3">Total ratings</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -140,10 +159,9 @@ export default function RatingAnalyticsPage() {
                           </div>
                         ) : <span className="text-muted">–</span>}
                       </td>
-                      <td className="px-4 py-3 text-muted">{categoryAverage?.count || 0}</td>
                     </tr>,
                     <tr key={subcriteriaId} id={subcriteriaId} aria-hidden={!isOpen}>
-                      <td colSpan={4} className="p-0">
+                      <td colSpan={3} className="p-0">
                         <div
                           className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
                         >
@@ -151,15 +169,15 @@ export default function RatingAnalyticsPage() {
                             <table className="w-full table-fixed text-left text-sm">
                               <colgroup>
                                 <col className="w-[40%]" />
-                                <col className="w-[18%]" />
-                                <col className="w-[27%]" />
-                                <col className="w-[15%]" />
+                                <col className="w-[25%]" />
+                                <col className="w-[35%]" />
                               </colgroup>
                               <caption className="sr-only">{criterion.label} subcriteria</caption>
                               <thead className="sr-only">
                                 <tr>
                                   <th scope="col">Subcriterion</th>
                                   <th scope="col">Average score</th>
+                                  <th scope="col">Top group</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-line">
@@ -169,6 +187,7 @@ export default function RatingAnalyticsPage() {
                                     <td className="px-4 py-3 font-semibold">
                                       {subcriterion.average === null ? '–' : formatScore(subcriterion.average)}
                                     </td>
+                                    <td aria-hidden="true" />
                                   </tr>
                                 ))}
                               </tbody>
@@ -234,9 +253,6 @@ export default function RatingAnalyticsPage() {
                 </span>
               </label>
             </div>
-            <p className="mt-3 text-xs text-muted" role="status">
-              {summary.evaluationCount} {summary.evaluationCount === 1 ? 'evaluation' : 'evaluations'} match these filters.
-            </p>
           </section>
         </div>
         {summary.overallGroups.length === 0 ? (
