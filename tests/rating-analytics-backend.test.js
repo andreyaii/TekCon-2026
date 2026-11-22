@@ -42,6 +42,14 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
     EvaluationDetails: [
       ['EvaluationID', 'Criterion', 'Subcriterion', 'Rating'],
     ],
+    PitchPerfectFinalist: [
+      ['GROUP CODE', 'PROJECT NAME', 'DESCRIPTION', 'CATEGORY', 'ADVISER'],
+      ['PITCH-1', 'Pitch Project', 'Pitch description', 'Innovation', 'Adviser One'],
+    ],
+    ResearchFinalist: [
+      ['NO.', 'ADVISER', 'CATEGORY', 'DESCRIPTION', 'PROJECT NAME', 'GROUP CODE'],
+      [9, 'Adviser Two', 'Research', 'Research description', 'Research Project', 'RES-2'],
+    ],
   };
   const cache = new Map([[
     'faculty-session:test-token',
@@ -74,7 +82,10 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
             },
           };
         },
-        getDataRange: () => ({ getValues: () => values.map((row) => [...row]) }),
+        getDataRange: () => ({
+          getValues: () => values.map((row) => [...row]),
+          getDisplayValues: () => values.map((row) => row.map(String)),
+        }),
         appendRow(row) {
           if (name === 'EvaluationDetails') {
             detailAppendCount += 1;
@@ -149,6 +160,37 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
   runInNewContext(script, context);
   return context;
 }
+
+test('getFinalists reads the named columns and ignores the Research numbering column', () => {
+  const backend = createBackend('Adviser');
+  const result = JSON.parse(backend.doGet({ parameter: { action: 'getFinalists' } }).content);
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.data.pitchPerfect, [{
+    groupCode: 'PITCH-1',
+    projectName: 'Pitch Project',
+    description: 'Pitch description',
+    category: 'Innovation',
+    adviser: 'Adviser One',
+  }]);
+  assert.deepEqual(result.data.research, [{
+    groupCode: 'RES-2',
+    projectName: 'Research Project',
+    description: 'Research description',
+    category: 'Research',
+    adviser: 'Adviser Two',
+  }]);
+});
+
+test('getFinalists returns empty lists when finalist sheets are unavailable', () => {
+  const backend = createBackend('Adviser');
+  delete backend.sheets.PitchPerfectFinalist;
+  delete backend.sheets.ResearchFinalist;
+  const result = JSON.parse(backend.doGet({ parameter: { action: 'getFinalists' } }).content);
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.data, { pitchPerfect: [], research: [] });
+});
 
 test('Admin analytics uses the authenticated Admin session without an Admin Faculty row or group assignment', () => {
   const backend = createBackend('Admin');

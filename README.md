@@ -33,3 +33,7 @@ Students can edit their own group's description from My Group. The authenticated
 The Admin Rating Analytics page reads all evaluation records and available rubric details through the authenticated `getRatingAnalytics` operation. The operation is restricted to faculty administrators and classifies each evaluator against the live Faculty and Students sheets; unknown historical IDs and evaluations without rubric detail rows remain accessible. Analytics reports major-category averages, individual-subcriterion averages, strongest/weakest subcriteria, and group-level breakdowns. Other clients receive only empty aggregate data unless signed in as an Admin, consistent with the rating visibility policy. The Groups sheet's `RESEARCH PAPER` column is shown as the Research Paper link.
 
 The default API base URL can be overridden with `VITE_API_URL`. Remaining backend integration includes production deployment and operational monitoring.
+
+## Finalists
+
+The shared Finalists page reads the `PitchPerfectFinalist` and `ResearchFinalist` tabs through the public, read-only `getFinalists` Apps Script action. Both tabs use the `GROUP CODE`, `PROJECT NAME`, `DESCRIPTION`, `CATEGORY`, and `ADVISER` headers; the Research Conference list is mapped by header and ignores its numbering column. Missing sheets or sheets without finalist rows are returned as empty lists. After changing `google-apps-script/Code.gs`, redeploy the Apps Script web app so the endpoint serves the new action.

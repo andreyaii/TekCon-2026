@@ -138,6 +138,53 @@ function getRequiredSheet(spreadsheet, sheetName) {
   return sheet;
 }
 
+function getFinalistRows(spreadsheet, sheetName) {
+  const sheet = spreadsheet.getSheetByName(sheetName);
+
+  if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 1) {
+    return [];
+  }
+
+  const rows = sheet.getDataRange().getDisplayValues();
+  const headers = rows.shift().map(function(header) {
+    return String(header).trim();
+  });
+  const fields = {
+    groupCode: "GROUP CODE",
+    projectName: "PROJECT NAME",
+    description: "DESCRIPTION",
+    category: "CATEGORY",
+    adviser: "ADVISER"
+  };
+  const indexes = {};
+
+  Object.keys(fields).forEach(function(field) {
+    indexes[field] = getHeaderIndex(headers, [fields[field]]);
+  });
+
+  if (Object.keys(indexes).some(function(field) {
+    return indexes[field] < 0;
+  })) {
+    return [];
+  }
+
+  return rows
+    .filter(function(row) {
+      return row.some(function(cell) {
+        return cell !== "";
+      });
+    })
+    .map(function(row) {
+      const finalist = {};
+
+      Object.keys(indexes).forEach(function(field) {
+        finalist[field] = row[indexes[field]] || "";
+      });
+
+      return finalist;
+    });
+}
+
 function responseJSON(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
@@ -515,6 +562,17 @@ function doGet(e) {
       : "";
 
     const spreadsheet = getSpreadsheet();
+
+    // PUBLIC FINALIST LISTS
+    if (action === "getFinalists") {
+      return responseJSON({
+        success: true,
+        data: {
+          pitchPerfect: getFinalistRows(spreadsheet, "PitchPerfectFinalist"),
+          research: getFinalistRows(spreadsheet, "ResearchFinalist")
+        }
+      });
+    }
 
     // ADMIN RATING ANALYTICS
     if (action === "getRatingAnalytics") {

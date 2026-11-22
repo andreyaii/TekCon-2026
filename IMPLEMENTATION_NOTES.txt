@@ -1,6 +1,6 @@
 ================================================================================
 TECHCON / PPMD 2026 - FEATURE IMPLEMENTATION & CONTINUATION NOTES
-Date: 2026-11-14
+Date: 2026-11-22
 ================================================================================
 
 1. SUMMARY OF IMPLEMENTED FEATURES
@@ -9,11 +9,11 @@ Date: 2026-11-14
 [X] 1. GUEST ROLE AND ACCOUNT
 - Added 'Guest' to ACCOUNT_TYPES and created `isGuest(user)` in `src/utils/roles.js`.
 - Configured routes in `src/App.jsx`:
-  * Route `/guest` with child routes `/guest/all-projects` and `/guest/projects/:projectId`.
+  * Route `/guest` with child routes `/guest/all-projects`, `/guest/finalists`, and `/guest/projects/:projectId`.
   * Guests cannot access `/guest/my-teams`, `/guest/profile`, `/student/*`, or `/faculty/*`.
 - Configured navigation in `src/config/navigation.js` and `src/layouts/AppLayout.jsx`:
-  * `guestNav`: Exposes only 'All Projects' (`/guest/all-projects`) with `LayoutGrid` icon.
-  * Sidebar and mobile drawer display only 'All Projects' for Guest users.
+  * `guestNav`: Exposes only 'All Projects' (`/guest/all-projects`) and 'Finalists' (`/guest/finalists`).
+  * Sidebar and mobile drawer display only permitted navigation items for Guest users.
   * Bottom user info displays the user's name and 'Guest' badge.
 - Added Guest authentication support in `src/services/authService.js`:
   * Handles role 'Guest' in `login(identifier, password, role)`.
@@ -68,20 +68,48 @@ Date: 2026-11-14
   * If evaluator is faculty: checks if `group.Adviser` matches the faculty's `FacultyID` or `FullName`. If so, throws: "Faculty advisers cannot evaluate groups assigned to them."
   * In `action === "getEvaluationEligibility"`, returns `code: "assigned-team"` and `reason: "Faculty advisers cannot evaluate groups assigned to them."` if the group is assigned to that adviser.
 
+[X] 4. FINALISTS PAGE COMPACT COLUMNAR UI & VISUAL POLISH
+- Redesigned into an open, spacious columnar layout:
+  * Added Project Logo on the left side of the project name with fallback monogram/icon badge.
+  * Converted the Pitch Perfect and Research Conference toggles to an interactive Segmented Control (Segmented Tab Control).
+  * Removed the group code badge/column entirely for a cleaner, modern presentation.
+  * Replaced custom dark backgrounds with the app's native `.card`, `bg-surface`, and `border-line` tokens so the entire box area, headers, segmented controls, and hover states adapt cleanly and brightly to light mode, while retaining proper contrast in dark mode.
+  * Configured Tailwind dark mode (`darkMode: ['selector', '[data-theme="dark"]]`) and synchronized `ThemeContext` (`document.documentElement.classList.toggle('dark')`).
+  * Displayed 3 balanced columns: Project (Logo + Name + Category), Short Description (comfortable line-clamp-2), and Adviser (with interactive arrow pill).
+- Filtered out empty spreadsheet rows from the backend data feed.
+- Made each entire row an accessible, hover-reactive `<Link>` routing to the project detail page with `state: { from: '/finalists', finalist }`.
+
+[X] 5. PROJECT DETAIL CLICK ERROR RESOLUTION & RESILIENCE
+- Identified and fixed root cause of errors when clicking projects:
+  * Normalized ID comparisons in `getProjectById` (`projectService.js`) to handle case and whitespace variations.
+  * Added fallback in `ProjectDetailPage.jsx` to load project data from the finalist state when an item in Finalists is not listed in `getProjects()` (e.g. unposted projects).
+  * Shielded `getEligibility`, `getAggregates`, and `getEvaluationsForGroup` with `.catch()` handlers so API or authentication mismatches do not crash the page or trigger an `<ErrorState>` screen.
+  * Normalized ID equality checks in `requireCurrentStudent`, `requireCurrentEvaluator`, and `getEligibility` to avoid string/number type mismatches.
+  * Added "Back to finalists" navigation when opening project details from the Finalists page.
+
+[X] 5. FACULTY BLACK SCREEN BUG FIX & STABILITY HARDENING
+- Fixed `src/pages/faculty/AllProjectsPage.jsx`: Replaced fragile `.toLowerCase()` calls with `isProjectAssignedToFaculty(p, user)`, which safely converts all IDs and names using `String(value ?? '').trim().toLowerCase()`.
+- Hardened `src/utils/roles.js`: Made `isGuest` and `isAdmin` safely handle non-string or numeric role properties.
+- Hardened `src/layouts/AppLayout.jsx`: Added optional chaining (`user?.name || ''`) to avoid runtime crashes if `user` is null during transitions.
+- Created `src/components/ErrorBoundary.jsx` and wrapped the application in `src/main.jsx` to catch any runtime exceptions gracefully instead of turning the screen black.
+
 --------------------------------------------------------------------------------
 2. FILES MODIFIED / CREATED
 --------------------------------------------------------------------------------
 Frontend:
-- `src/utils/roles.js`: Added GUEST account type, isGuest, restricted canViewRatings to isAdmin, disabled canToggleRatings.
+- `src/pages/shared/FinalistsPage.jsx`: Redesigned vertical clickable list and removed "(in no particular order)".
+- `src/components/ErrorBoundary.jsx`: Added global error boundary with user-friendly retry screen.
+- `src/main.jsx`: Wrapped application in ErrorBoundary.
+- `src/utils/roles.js`: Added GUEST account type, isGuest, restricted canViewRatings to isAdmin, disabled canToggleRatings, hardened string checks.
 - `src/config/navigation.js`: Added guestNav (All Projects only).
 - `src/App.jsx`: Added `/guest` and `/faculty/projects/:projectId/evaluate` routes.
-- `src/layouts/AppLayout.jsx`: Added guest nav support, removed RatingsAdminControl.
+- `src/layouts/AppLayout.jsx`: Added guest nav support, removed RatingsAdminControl, hardened user name references.
 - `src/components/RatingsAdminControl.jsx`: Emptied / returns null.
 - `src/components/DemoPanel.jsx`: Deleted the development-only demo/reset panel.
 - `src/pages/LoginPage.jsx`: Displays only Student and Faculty tabs; accepts Guest as a Faculty identifier.
 - `src/services/authService.js`: Uses backend guest authentication and normalizes its session.
 - `src/pages/shared/ProjectDetailPage.jsx`: Added evaluate box for faculty with disabled state for assigned groups; guest view restrictions.
-- `src/pages/faculty/AllProjectsPage.jsx`: Added guest navigation support and dynamic assigned team badge; badge matching safely handles numeric IDs.
+- `src/pages/faculty/AllProjectsPage.jsx`: Added guest navigation support and dynamic assigned team badge; badge matching safely handles numeric IDs via isProjectAssignedToFaculty.
 - `src/services/facultyService.js`: Updated getAssignedGroupIds to match against project list from getProjects(), using normalized identity values.
 - `src/utils/faculty.js`: Added shared, type-safe faculty/project assignment matching.
 - `src/services/evaluationAssignment.js`: Added faculty assigned team check and guest blocking.
@@ -96,7 +124,7 @@ Backend (Google Apps Script):
   * Added `createFacultySession`, `createGuestSession`, `getAuthenticatedEvaluator`, and updated `getEvaluationEligibility`.
 
 Tests:
-- `tests/core.test.js`: Covers Guest role, Rating visibility, Faculty Adviser rating restrictions, and numeric faculty/project IDs. Total 21/21 tests passing.
+- `tests/core.test.js`: Covers Guest role, Rating visibility, Faculty Adviser rating restrictions, and numeric faculty/project IDs.
 
 --------------------------------------------------------------------------------
 3. STEPS TO DEPLOY GOOGLE APPS SCRIPT (IF USING REMOTE BACKEND)
@@ -109,6 +137,6 @@ Note: Even before redeploying, the frontend contains local fallback handlers for
 --------------------------------------------------------------------------------
 4. VERIFICATION PERFORMED
 --------------------------------------------------------------------------------
-- Unit tests: Ran `npm test` -> 22 passing tests, 0 failures.
+- Unit tests: Ran `npm test` -> all tests passing.
 - Production build: Ran `npm run build` -> Vite production build succeeded with 0 errors.
 ================================================================================

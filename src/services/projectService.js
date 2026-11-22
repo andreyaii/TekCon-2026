@@ -70,8 +70,14 @@ export async function getProjects({ excludeGroupId, groupIds, refresh = false } 
 }
 
 export async function getProjectById(id, options) {
+  const normalizedId = String(id || '').trim().toLowerCase();
+  if (!normalizedId) return null;
   const projects = await getProjects(options);
-  return projects.find((x) => x.id === id || x.groupId === id) || null;
+  return projects.find((x) =>
+    String(x.id || '').trim().toLowerCase() === normalizedId ||
+    String(x.groupId || '').trim().toLowerCase() === normalizedId ||
+    String(x.groupCode || '').trim().toLowerCase() === normalizedId
+  ) || null;
 }
 
 export async function getProjectByGroupId(groupId, options) {

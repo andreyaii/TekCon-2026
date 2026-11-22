@@ -70,7 +70,7 @@ export default function AppLayout() {
       <div className="space-y-2 border-t border-line p-3">
         <div className="mb-2 flex items-center justify-between gap-2 px-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold">{user.name}</p>
+            <p className="truncate text-sm font-bold">{user?.name || ''}</p>
             <span className={isGuest(user) ? 'badge-primary' : isFaculty(user) ? 'badge-primary' : 'badge-green'}>{roleLabel}</span>
           </div>
           {themeToggle}
@@ -89,7 +89,7 @@ export default function AppLayout() {
       <header className="sticky top-0 z-40 flex items-center justify-between border-b border-line bg-white/95 px-4 py-3 backdrop-blur lg:hidden">
         <div>
           <p className="font-display text-lg font-bold leading-tight">TekCon 2026</p>
-          <p className="text-xs text-muted">{user.name}</p>
+          <p className="text-xs text-muted">{user?.name || ''}</p>
         </div>
         <div className="flex items-center gap-2">
           {themeToggle}

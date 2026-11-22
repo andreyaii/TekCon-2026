@@ -63,7 +63,7 @@ function ReceivedEvaluations({ evaluations }) {
   );
 }
 
-// Shared by /student/projects/:id and /faculty/projects/:id.
+// Shared by /student/projects/:id, /faculty/projects/:id, and /guest/projects/:id.
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
   const location = useLocation();
@@ -77,40 +77,83 @@ export default function ProjectDetailPage() {
   const base = basePathFor(user);
 
   const { data, loading, error, reload } = useAsync(async (force) => {
-    const project = await getProjectById(projectId, { refresh: force });
+    let project = await getProjectById(projectId, { refresh: force });
+
+    // Fallback: If not returned in project list, construct from finalist state
+    if (!project && location.state?.finalist) {
+      const f = location.state.finalist;
+      project = {
+        id: f.groupCode || projectId,
+        groupId: f.groupCode || projectId,
+        groupCode: f.groupCode || projectId,
+        title: f.projectName || 'Untitled Project',
+        description: f.description || '',
+        tag: f.category || 'General',
+        category: f.category || 'General',
+        stage: 'Finalist',
+        facultyId: f.adviser || null,
+        adviser: f.adviser || '',
+        thumbnail: '',
+        imageUrl: '',
+        researchPaperLink: '',
+        pitchVideoLink: '',
+        documentationLink: '',
+        posterLink: '',
+        group: {
+          id: f.groupCode || projectId,
+          groupCode: f.groupCode || projectId,
+          groupName: f.projectName || f.groupCode || projectId,
+          members: []
+        }
+      };
+    }
+
     if (!project) return { project: null };
+
+    // Fetch aggregates, eligibility, and evaluations safely without failing entire page
     const [aggregates, eligibility, received] = await Promise.all([
-      getAggregates(user),
-      !guest ? getEligibility(user.id, project.groupId) : null,
-      admin ? getEvaluationsForGroup(project.groupId, user) : null,
+      getAggregates(user).catch(() => ({})),
+      !guest && user?.id ? getEligibility(user.id, project.groupId).catch((err) => ({
+        canEvaluate: false,
+        code: 'unavailable',
+        reason: err?.message || 'Evaluation eligibility unavailable.'
+      })) : null,
+      admin ? getEvaluationsForGroup(project.groupId, user).catch(() => []) : null,
     ]);
+
     return {
       project,
-      aggregate: aggregates[project.groupId],
+      aggregate: aggregates?.[project.groupId],
       eligibility,
       status: eligibility,
-      received,
+      received: received || [],
     };
-  }, [projectId, user.id], `project-detail:${guest ? 'guest' : admin ? 'admin' : student ? 'student' : 'faculty'}:${user.id}:${projectId}`);
+  }, [projectId, user?.id], `project-detail:${guest ? 'guest' : admin ? 'admin' : student ? 'student' : 'faculty'}:${user?.id}:${projectId}`);
 
   if (loading) return <ProjectDetailsSkeleton />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
   const { project, aggregate, eligibility, status, received } = data;
 
+  const finalistsPath = `${base}/finalists`;
   const projectsPath = student ? `${base}/explore` : `${base}/all-projects`;
   const returnPath = location.state?.from;
-  const backToProjects = typeof returnPath === 'string'
-    && (returnPath === projectsPath || returnPath.startsWith(`${projectsPath}?`))
+  const isFromFinalists = typeof returnPath === 'string' && returnPath.includes('/finalists');
+  const backToProjects = isFromFinalists
     ? returnPath
-    : projectsPath;
+    : typeof returnPath === 'string'
+      && (returnPath === projectsPath || returnPath.startsWith(`${projectsPath}?`))
+      ? returnPath
+      : projectsPath;
+  const backLabel = isFromFinalists ? 'Back to finalists' : 'Back to projects';
+
   const back = (
     <Link to={backToProjects} className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-primary">
-      <ArrowLeft className="h-4 w-4" /> Back to projects
+      <ArrowLeft className="h-4 w-4" /> {backLabel}
     </Link>
   );
   if (!project) return <>{back}<EmptyState title="Project not found" message="This project does not exist or was removed." /></>;
 
-  const isOwn = student && project.groupId === user.groupId;
+  const isOwn = student && project.groupId === user?.groupId;
   const logoUrl = getProjectLogoUrl(project);
 
   return (
@@ -149,10 +192,12 @@ export default function ProjectDetailPage() {
           <EvaluateBox eligibility={eligibility} status={status} projectId={project.id} isStudent={student} />
         </section>
       )}
-      {admin && <ReceivedEvaluations evaluations={received || []} />}
-      <Modal open={Boolean(logoPreviewUrl)} title={`${project.title} logo`} onClose={() => setLogoPreviewUrl('')} size="wide">
-        <div className="flex max-h-[70vh] min-h-48 items-center justify-center rounded-xl bg-[#0D0D12] p-4">
-          <img src={logoPreviewUrl} alt={`${project.title} logo`} className="max-h-[65vh] max-w-full object-contain" />
+
+      {admin && received && <ReceivedEvaluations evaluations={received} />}
+
+      <Modal open={Boolean(logoPreviewUrl)} title="Project Logo" onClose={() => setLogoPreviewUrl('')}>
+        <div className="flex justify-center p-4">
+          <img src={logoPreviewUrl} alt="Project Logo Preview" className="max-h-[70vh] max-w-full rounded-lg object-contain" />
         </div>
       </Modal>
     </div>

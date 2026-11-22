@@ -17,6 +17,11 @@ export function ThemeProvider({ children }) {
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch (error) {

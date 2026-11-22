@@ -40,7 +40,7 @@ function isValidSubmittedAt(value) {
 
 function requireCurrentStudent(studentId) {
   const currentUser = getCurrentUser();
-  if (!currentUser || currentUser.id !== studentId || !isStudent(currentUser)) {
+  if (!currentUser || String(currentUser.id) !== String(studentId) || !isStudent(currentUser)) {
     throw new Error('Only the currently signed-in student can submit or view their evaluation status.');
   }
   return currentUser;
@@ -48,7 +48,7 @@ function requireCurrentStudent(studentId) {
 
 function requireCurrentEvaluator(evaluatorId) {
   const currentUser = getCurrentUser();
-  if (!currentUser || currentUser.id !== evaluatorId || isGuest(currentUser)) {
+  if (!currentUser || String(currentUser.id) !== String(evaluatorId) || isGuest(currentUser)) {
     throw new Error('Only signed-in students and faculty can submit or view evaluation data.');
   }
   return currentUser;
@@ -237,7 +237,7 @@ export async function getEligibility(studentId, targetGroupId) {
   if (isGuest(currentUser)) return { canEvaluate: false, code: 'guest', reason: 'Guests cannot evaluate projects.' };
 
   if (isFaculty(currentUser)) {
-    if (currentUser.id !== studentId) {
+    if (String(currentUser.id) !== String(studentId)) {
       throw new Error('Only the currently signed-in faculty member can check evaluation eligibility.');
     }
     const [projects, response] = await Promise.all([

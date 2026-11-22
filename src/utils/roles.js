@@ -4,8 +4,8 @@ export const FACULTY_ROLES = { ADVISER: 'Adviser', ADMIN: 'Admin' };
 
 export const isStudent = (u) => u?.accountType === ACCOUNT_TYPES.STUDENT;
 export const isFaculty = (u) => u?.accountType === ACCOUNT_TYPES.FACULTY;
-export const isGuest = (u) => u?.accountType === ACCOUNT_TYPES.GUEST || u?.role?.toLowerCase() === 'guest';
-export const isAdmin = (u) => isFaculty(u) && (u.role === FACULTY_ROLES.ADMIN || u.role?.toLowerCase() === 'admin');
+export const isGuest = (u) => Boolean(u && (u.accountType === ACCOUNT_TYPES.GUEST || String(u.role || '').toLowerCase() === 'guest'));
+export const isAdmin = (u) => Boolean(isFaculty(u) && (u?.role === FACULTY_ROLES.ADMIN || String(u?.role || '').toLowerCase() === 'admin'));
 
 // Hide All / Show All feature is completely removed.
 export const canToggleRatings = () => false;

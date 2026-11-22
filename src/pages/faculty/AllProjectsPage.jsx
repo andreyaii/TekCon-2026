@@ -1,14 +1,12 @@
 import PageHeader from '../../components/PageHeader';
 import ProjectBrowser from '../../components/ProjectBrowser';
-import { ErrorState } from '../../components/Feedback';
-import { AllProjectsSkeleton } from '../../components/skeletons/PageSkeletons';
+import { Loading, ErrorState } from '../../components/Feedback';
 import { useAuth } from '../../context/AuthContext';
 import { useAsync } from '../../hooks/useAsync';
 import { getProjects } from '../../services/projectService';
 import { getAggregates } from '../../services/evaluationService';
-import { isProjectAssignedToFaculty } from '../../utils/faculty';
-
 import { isGuest } from '../../utils/roles';
+import { isProjectAssignedToFaculty } from '../../utils/faculty';
 
 export default function AllProjectsPage() {
   const { user } = useAuth();
@@ -16,13 +14,13 @@ export default function AllProjectsPage() {
   const { data, loading, error, reload } = useAsync(
     async (force) => ({
       projects: await getProjects({ refresh: force }),
-      aggregates: await getAggregates(user),
+      aggregates: await getAggregates(),
     }),
     [user?.id],
     `${guest ? 'guest' : 'faculty'}-all-projects:${user?.id}`,
   );
 
-  if (loading) return <AllProjectsSkeleton />;
+  if (loading) return <Loading />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
 
   return (
@@ -33,7 +31,7 @@ export default function AllProjectsPage() {
         fullCardLink
         linkFor={(p) => guest ? `/guest/projects/${p.id}` : `/faculty/projects/${p.id}`}
         badgeFor={(p) => {
-          if (guest) return null;
+          if (guest || !user) return null;
           return isProjectAssignedToFaculty(p, user) ? <span className="badge-primary">My Team</span> : null;
         }} />
     </>

@@ -5,6 +5,7 @@ import { evaluationRubric, evaluationSubcriteria } from '../src/data/evaluationR
 import { checkEligibility } from '../src/services/evaluationAssignment.js';
 import { getAdminRatingAnalytics, getAggregates, getEligibility, getEvaluationStatus, getFacultyEvaluationData, getStudentEvaluationData, submitEvaluation } from '../src/services/evaluationService.js';
 import { getProjects, updateGroupDescription } from '../src/services/projectService.js';
+import { getFinalists } from '../src/services/finalistService.js';
 import { getSettings } from '../src/services/settingsService.js';
 import { calcOverall } from '../src/utils/ratings.js';
 import { getProjectLogoUrl } from '../src/utils/projectLogo.js';
@@ -12,7 +13,7 @@ import { hasCriterionSubmission } from '../src/utils/evaluationResources.js';
 import { getSafeResourceUrl } from '../src/utils/resourceUrl.js';
 import { isProjectAssignedToFaculty } from '../src/utils/faculty.js';
 import { isGuest, isFaculty, isStudent, isAdmin, canViewRatings, canToggleRatings, homePathFor, basePathFor } from '../src/utils/roles.js';
-import { guestNav } from '../src/config/navigation.js';
+import { guestNav, studentNav, facultyNav } from '../src/config/navigation.js';
 import { sortOverallGroups, summarizeRatings } from '../src/utils/ratingAnalytics.js';
 import { login } from '../src/services/authService.js';
 
@@ -20,6 +21,7 @@ const entries = new Map();
 let apiEvaluations;
 let apiGroups;
 let apiSettings;
+let apiFinalists;
 let currentStudent;
 let apiFailure;
 let requestCounts;
@@ -98,6 +100,7 @@ beforeEach(() => {
     thumbnail: 'https://example.com/logo.png',
   }));
   apiSettings = { EvaluationAssignmentMethod: 'free-select', CommentMaxLength: '500' };
+  apiFinalists = { pitchPerfect: [], research: [] };
   apiFailure = false;
   requestCounts = new Map();
   globalThis.fetch = async (url, options = {}) => {
@@ -110,6 +113,7 @@ beforeEach(() => {
     const mine = apiEvaluations.filter((evaluation) => evaluation.StudentID === activeUser?.id);
 
     if (action === 'getSettings') return response({ success: true, data: apiSettings });
+    if (action === 'getFinalists') return response({ success: true, data: apiFinalists });
     if (action === 'getProjects') return response({ success: true, data: apiGroups });
     if (action === 'getRatingAnalytics') {
       return response({
@@ -669,7 +673,23 @@ test('evaluation settings are read from the Google Sheets API', async () => {
   });
 });
 
-test('guest role restricts access to all-projects and blocks evaluations and ratings', async () => {
+test('finalists are loaded through the shared read-only API action', async () => {
+  apiFinalists = {
+    pitchPerfect: [{ groupCode: 'P-1', projectName: 'Pitch', description: 'Pitch description', category: 'Innovation', adviser: 'A. One' }],
+    research: [{ groupCode: 'R-1', projectName: 'Research', description: 'Research description', category: 'Research', adviser: 'A. Two' }],
+  };
+
+  assert.deepEqual(await getFinalists(), apiFinalists);
+  assert.equal(requestCounts.get('getFinalists'), 1);
+});
+
+test('finalists navigation is available to student, faculty, and guest roles', () => {
+  assert.ok(studentNav.some(({ to, label }) => to === '/student/finalists' && label === 'Finalists'));
+  assert.ok(facultyNav.some(({ to, label }) => to === '/faculty/finalists' && label === 'Finalists'));
+  assert.ok(guestNav.some(({ to, label }) => to === '/guest/finalists' && label === 'Finalists'));
+});
+
+test('guest role can access finalists while evaluations and ratings remain restricted', async () => {
   const guestUser = { id: 'GUEST-001', accountType: 'Guest', role: 'Guest', name: 'Guest User' };
   assert.equal(isGuest(guestUser), true);
   assert.equal(isStudent(guestUser), false);
@@ -678,7 +698,10 @@ test('guest role restricts access to all-projects and blocks evaluations and rat
   assert.equal(homePathFor(guestUser), '/guest/all-projects');
   assert.equal(basePathFor(guestUser), '/guest');
   assert.equal(canViewRatings(guestUser), false);
-  assert.deepEqual(guestNav, [{ to: '/guest/all-projects', label: 'All Projects', icon: guestNav[0].icon }]);
+  assert.deepEqual(guestNav.map(({ to, label }) => ({ to, label })), [
+    { to: '/guest/all-projects', label: 'All Projects' },
+    { to: '/guest/finalists', label: 'Finalists' },
+  ]);
 
   entries.set('techcon:session', JSON.stringify({ user: guestUser, sessionToken: 'guest-session' }));
   const eligibility = await getEligibility(guestUser.id, 'g2');
