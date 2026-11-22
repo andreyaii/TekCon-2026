@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as authService from '../services/authService';
 import { invalidateAsyncCache } from '../hooks/useAsync';
+import { setSessionExpiredHandler } from '../config/apiConfig.js';
 
 const AuthContext = createContext(null);
 
@@ -22,6 +23,11 @@ export function AuthProvider({ children }) {
       setUser(null);
     }
   }, []);
+
+  useEffect(() => {
+    setSessionExpiredHandler(logout);
+    return () => setSessionExpiredHandler(null);
+  }, [logout]);
 
   const value = useMemo(() => ({ user, login, logout }), [user, login, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
