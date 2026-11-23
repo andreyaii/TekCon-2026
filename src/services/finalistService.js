@@ -1,6 +1,7 @@
 import { request } from '../config/apiConfig.js';
 
 const finalistFields = ['groupCode', 'projectName', 'description', 'category', 'adviser'];
+const publishedFields = ['groupCode', 'projectTitle', 'publication', 'date', 'place', 'paperTitle', 'authors', 'recognition'];
 
 function validateFinalists(finalists, label) {
   if (!Array.isArray(finalists)) {
@@ -15,14 +16,44 @@ function validateFinalists(finalists, label) {
   });
 }
 
+export function validatePublishedProjects(projects) {
+  if (!Array.isArray(projects)) return [];
+  return projects.map((item) => {
+    const obj = {};
+    publishedFields.forEach((field) => {
+      obj[field] = String(item?.[field] || '').trim();
+    });
+    obj.projectName = obj.projectTitle || '';
+    return obj;
+  });
+}
+
+export async function getPublishedProjects() {
+  try {
+    const response = await request('getPublishedProjects');
+    if (response?.data && Array.isArray(response.data)) {
+      return validatePublishedProjects(response.data);
+    }
+  } catch {
+    // If endpoint is not directly available, check getFinalists
+  }
+  return [];
+}
+
 export async function getFinalists() {
   const response = await request('getFinalists');
   if (!response.data || typeof response.data !== 'object' || Array.isArray(response.data)) {
     throw new Error('The finalist response is invalid.');
   }
 
-  return {
+  const result = {
     pitchPerfect: validateFinalists(response.data.pitchPerfect, 'Pitch Perfect'),
     research: validateFinalists(response.data.research, 'Research Conference'),
   };
+
+  if (response.data.publishedProjects && Array.isArray(response.data.publishedProjects)) {
+    result.publishedProjects = validatePublishedProjects(response.data.publishedProjects);
+  }
+
+  return result;
 }

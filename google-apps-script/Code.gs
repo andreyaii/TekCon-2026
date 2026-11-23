@@ -185,6 +185,51 @@ function getFinalistRows(spreadsheet, sheetName) {
     });
 }
 
+function getPublishedProjectRows(spreadsheet, sheetName) {
+  const sheet = spreadsheet.getSheetByName(sheetName);
+
+  if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 1) {
+    return [];
+  }
+
+  const rows = sheet.getDataRange().getDisplayValues();
+  const headers = rows.shift().map(function(header) {
+    return String(header).trim();
+  });
+  const fields = {
+    groupCode: ["GROUP CODE", "GROUPCODE", "GROUP"],
+    projectTitle: ["PROJECT TITLE", "PROJECTTITLE", "PROJECT NAME", "TITLE"],
+    publication: ["PUBLICATION", "PUBLICATION "],
+    date: ["DATE", "Date"],
+    place: ["PLACE", "Place"],
+    paperTitle: ["PAPER TITLE", "PAPERTITLE"],
+    authors: ["AUTHORS", "AUTHORS ", "AUTHOR"],
+    recognition: ["RECOGNITION", "Recognition"]
+  };
+  const indexes = {};
+
+  Object.keys(fields).forEach(function(field) {
+    indexes[field] = getHeaderIndex(headers, fields[field]);
+  });
+
+  return rows
+    .filter(function(row) {
+      return row.some(function(cell) {
+        return String(cell).trim() !== "";
+      });
+    })
+    .map(function(row) {
+      const item = {};
+
+      Object.keys(fields).forEach(function(field) {
+        const index = indexes[field];
+        item[field] = index >= 0 ? (row[index] || "") : "";
+      });
+
+      return item;
+    });
+}
+
 function responseJSON(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
@@ -565,12 +610,25 @@ function doGet(e) {
 
     // PUBLIC FINALIST LISTS
     if (action === "getFinalists") {
+      const finalistData = {
+        pitchPerfect: getFinalistRows(spreadsheet, "PitchPerfectFinalist"),
+        research: getFinalistRows(spreadsheet, "ResearchFinalist")
+      };
+      const pubSheet = spreadsheet.getSheetByName("PublishedProjects");
+      if (pubSheet) {
+        finalistData.publishedProjects = getPublishedProjectRows(spreadsheet, "PublishedProjects");
+      }
       return responseJSON({
         success: true,
-        data: {
-          pitchPerfect: getFinalistRows(spreadsheet, "PitchPerfectFinalist"),
-          research: getFinalistRows(spreadsheet, "ResearchFinalist")
-        }
+        data: finalistData
+      });
+    }
+
+    // PUBLISHED PROJECTS
+    if (action === "getPublishedProjects") {
+      return responseJSON({
+        success: true,
+        data: getPublishedProjectRows(spreadsheet, "PublishedProjects")
       });
     }
 

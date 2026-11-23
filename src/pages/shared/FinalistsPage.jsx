@@ -1,11 +1,11 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, FlaskConical, Rocket, Sparkles } from 'lucide-react';
+import { BookOpen, Calendar, ChevronRight, FlaskConical, MapPin, Rocket, Sparkles } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import { EmptyState, ErrorState, Loading } from '../../components/Feedback';
 import { useAsync } from '../../hooks/useAsync';
 import { useAuth } from '../../context/AuthContext';
-import { getFinalists } from '../../services/finalistService';
+import { getFinalists, getPublishedProjects } from '../../services/finalistService';
 import { getProjects } from '../../services/projectService';
 import { basePathFor } from '../../utils/roles';
 import { getProjectLogoUrl } from '../../utils/projectLogo';
@@ -22,6 +22,12 @@ const competitions = [
     label: 'Research Conference',
     icon: FlaskConical,
     emptyMessage: 'No Research Conference finalists are available yet.',
+  },
+  {
+    id: 'publishedProjects',
+    label: 'Published Projects',
+    icon: BookOpen,
+    emptyMessage: 'No Published Projects are available yet.',
   },
 ];
 
@@ -59,12 +65,21 @@ export default function FinalistsPage() {
 
   const { data, loading, error, reload } = useAsync(
     async (force) => {
-      const [finalistsResult, projectsResult] = await Promise.all([
+      const [finalistsResult, projectsResult, publishedResult] = await Promise.all([
         getFinalists(),
         getProjects({ refresh: force }).catch(() => []),
+        getPublishedProjects().catch(() => []),
       ]);
+
+      const publishedList = (finalistsResult?.publishedProjects && finalistsResult.publishedProjects.length > 0)
+        ? finalistsResult.publishedProjects
+        : publishedResult;
+
       return {
-        finalists: finalistsResult,
+        finalists: {
+          ...finalistsResult,
+          publishedProjects: publishedList || [],
+        },
         projects: projectsResult,
       };
     },
@@ -85,18 +100,27 @@ export default function FinalistsPage() {
   if (error) return <ErrorState error={error} onRetry={reload} />;
 
   const competition = competitions.find(({ id }) => id === activeCompetition);
-  const rawFinalists = data?.finalists?.[activeCompetition] || [];
+  const isPublishedTab = activeCompetition === 'publishedProjects';
+
   // Filter out empty rows from the backend
-  const finalists = rawFinalists.filter(
-    (f) => Boolean(f.projectName?.trim() || f.groupCode?.trim())
-  );
+  const rawFinalists = isPublishedTab
+    ? (data?.finalists?.publishedProjects || [])
+    : (data?.finalists?.[activeCompetition] || []);
+
+  const items = rawFinalists.filter((item) => {
+    if (isPublishedTab) {
+      return Boolean(item.projectTitle?.trim() || item.paperTitle?.trim() || item.groupCode?.trim());
+    }
+    return Boolean(item.projectName?.trim() || item.groupCode?.trim());
+  });
+
   const basePath = basePathFor(user);
 
   return (
     <div className="relative isolate">
       {/* Ambient Background Atmosphere (Adapts seamlessly to light and dark modes) */}
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
-        {/* Soft atmospheric radial glow (tuned for crisp light and deep dark) */}
+        {/* Soft atmospheric radial glow */}
         <div
           className="absolute -top-24 left-1/2 h-[420px] w-[750px] -translate-x-1/2 blur-3xl opacity-30 dark:opacity-40"
           style={{
@@ -124,15 +148,15 @@ export default function FinalistsPage() {
         </div>
       </div>
 
-      <PageHeader title="Finalists" subtitle="Explore the selected projects from both TekCon competitions." />
+      <PageHeader title="Finalists" subtitle="Explore the selected projects from both TekCon competitions and published research." />
 
       {/* Segmented Control & Counter */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        {/* Segmented Control Bar */}
+        {/* Segmented Control Bar (Pitch Perfect | Research Conference | Published Projects) */}
         <div
           className="inline-flex items-center rounded-xl bg-surface p-1 border border-line shadow-card gap-1"
           role="tablist"
-          aria-label="Finalist competitions"
+          aria-label="Finalist competitions and publications"
         >
           {competitions.map(({ id, label, icon: Icon }) => {
             const isSelected = activeCompetition === id;
@@ -175,9 +199,9 @@ export default function FinalistsPage() {
           })}
         </div>
 
-        {finalists.length > 0 && (
+        {items.length > 0 && (
           <span className="text-sm font-medium text-muted">
-            Showing <strong className="text-ink font-semibold">{finalists.length}</strong> finalists
+            Showing <strong className="text-ink font-semibold">{items.length}</strong> {isPublishedTab ? 'published projects' : 'finalists'}
           </span>
         )}
       </div>
@@ -188,22 +212,131 @@ export default function FinalistsPage() {
         aria-labelledby={`finalists-tab-${activeCompetition}`}
         tabIndex={0}
       >
-        {finalists.length === 0 ? (
+        {items.length === 0 ? (
           <div className="card">
-            <EmptyState title="No finalists available" message={competition.emptyMessage} />
+            <EmptyState title="No items available" message={competition.emptyMessage} />
+          </div>
+        ) : isPublishedTab ? (
+          /* ========================================================= */
+          /* PUBLISHED PROJECTS TABLE VIEW                             */
+          /* Columns: Project Title, Paper Title, Publication, Authors, Date & Place */
+          /* ========================================================= */
+          <div className="card overflow-hidden divide-y divide-line">
+            {/* Table Header (Desktop) */}
+            <div className="hidden lg:grid lg:grid-cols-12 lg:gap-5 px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted bg-surface/70 border-b border-line">
+              <div className="col-span-3">Project Title</div>
+              <div className="col-span-3">Paper Title</div>
+              <div className="col-span-2">Publication</div>
+              <div className="col-span-2">Authors</div>
+              <div className="col-span-2">Date & Place</div>
+            </div>
+
+            {/* Published Project Rows */}
+            {items.map((item, index) => {
+              const projectLink = `${basePath}/projects/${encodeURIComponent(item.groupCode || item.projectTitle || '')}`;
+              const matchedProject = projectsByCode.get(String(item.groupCode || '').trim().toLowerCase());
+              const logoUrl = matchedProject ? getProjectLogoUrl(matchedProject) : '';
+
+              return (
+                <Link
+                  key={`${item.groupCode || item.projectTitle || item.paperTitle}-${index}`}
+                  to={projectLink}
+                  state={{
+                    from: `${basePath}/finalists`,
+                    finalist: {
+                      ...item,
+                      projectName: item.projectTitle,
+                      description: item.paperTitle || item.publication,
+                    },
+                    project: matchedProject,
+                  }}
+                  className="group block px-6 py-4.5 sm:py-5 transition-colors duration-150 ease-out hover:bg-surface/60 text-inherit no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                >
+                  <div className="lg:grid lg:grid-cols-12 lg:gap-5 lg:items-center">
+                    {/* 1. Project Title (with Logo) */}
+                    <div className="lg:col-span-3 min-w-0 pr-2 flex items-center gap-3.5">
+                      <ProjectLogoThumb logoUrl={logoUrl} title={item.projectTitle} />
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-bold text-base text-ink group-hover:text-primary transition-colors leading-snug line-clamp-2">
+                          {item.projectTitle || 'Untitled Project'}
+                        </h3>
+                      </div>
+                    </div>
+
+                    {/* 2. Paper Title */}
+                    <div className="lg:col-span-3 min-w-0 pr-2 mt-2.5 lg:mt-0">
+                      <span className="text-[11px] font-semibold text-muted uppercase tracking-wider block lg:hidden mb-0.5">
+                        Paper Title
+                      </span>
+                      <p className="text-sm font-medium text-ink leading-snug line-clamp-2">
+                        {item.paperTitle || '–'}
+                      </p>
+                    </div>
+
+                    {/* 3. Publication */}
+                    <div className="lg:col-span-2 min-w-0 pr-2 mt-2 lg:mt-0">
+                      <span className="text-[11px] font-semibold text-muted uppercase tracking-wider block lg:hidden mb-0.5">
+                        Publication
+                      </span>
+                      <span className="inline-block rounded-md bg-primary-light px-2.5 py-1 text-xs font-semibold text-primary max-w-full truncate">
+                        {item.publication || '–'}
+                      </span>
+                    </div>
+
+                    {/* 4. Authors */}
+                    <div className="lg:col-span-2 min-w-0 pr-2 mt-2 lg:mt-0">
+                      <span className="text-[11px] font-semibold text-muted uppercase tracking-wider block lg:hidden mb-0.5">
+                        Authors
+                      </span>
+                      <p className="text-xs text-muted leading-relaxed line-clamp-2">
+                        {item.authors || '–'}
+                      </p>
+                    </div>
+
+                    {/* 5. Date & Place */}
+                    <div className="lg:col-span-2 min-w-0 flex items-center justify-between gap-3 mt-2.5 lg:mt-0">
+                      <div className="min-w-0 text-xs">
+                        <span className="text-[11px] font-semibold text-muted uppercase tracking-wider block lg:hidden mb-0.5">
+                          Date & Place
+                        </span>
+                        {item.date && (
+                          <p className="font-semibold text-ink flex items-center gap-1.5 truncate">
+                            <Calendar className="h-3.5 w-3.5 text-muted shrink-0" />
+                            <span>{item.date}</span>
+                          </p>
+                        )}
+                        {item.place && (
+                          <p className="text-muted text-[11px] flex items-center gap-1.5 truncate mt-0.5">
+                            <MapPin className="h-3 w-3 text-muted shrink-0" />
+                            <span>{item.place}</span>
+                          </p>
+                        )}
+                        {!item.date && !item.place && <p className="text-muted">–</p>}
+                      </div>
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface text-muted transition-all duration-150 group-hover:bg-primary-light group-hover:text-primary group-hover:translate-x-1">
+                        <ChevronRight className="h-4 w-4" />
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         ) : (
-          /* Main Finalists Box Area (Uses app's standard .card class for perfect light/dark theme adaptation) */
+          /* ========================================================= */
+          /* PITCH PERFECT & RESEARCH CONFERENCE FINALISTS VIEW        */
+          /* Columns: Project (Logo + Title + Category), Description   */
+          /* (No Adviser column as requested)                          */
+          /* ========================================================= */
           <div className="card overflow-hidden divide-y divide-line">
             {/* Table Header (Desktop) */}
             <div className="hidden md:grid md:grid-cols-12 md:gap-6 px-6 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted bg-surface/70 border-b border-line">
               <div className="col-span-5 lg:col-span-4">Project</div>
-              <div className="col-span-4 lg:col-span-5">Description</div>
-              <div className="col-span-3">Adviser</div>
+              <div className="col-span-7 lg:col-span-8">Description</div>
             </div>
 
             {/* Finalist Rows */}
-            {finalists.map((finalist, index) => {
+            {items.map((finalist, index) => {
               const projectLink = `${basePath}/projects/${encodeURIComponent(finalist.groupCode || '')}`;
               const matchedProject = projectsByCode.get(String(finalist.groupCode || '').trim().toLowerCase());
               const logoUrl = matchedProject ? getProjectLogoUrl(matchedProject) : '';
@@ -231,23 +364,11 @@ export default function FinalistsPage() {
                       </div>
                     </div>
 
-                    {/* Description Column */}
-                    <div className="md:col-span-4 lg:col-span-5 min-w-0 pr-3 mt-2 md:mt-0">
-                      <p className="text-sm leading-relaxed text-muted line-clamp-2">
+                    {/* Description Column & Action Arrow (No Adviser) */}
+                    <div className="md:col-span-7 lg:col-span-8 min-w-0 flex items-center justify-between gap-4 mt-2 md:mt-0">
+                      <p className="text-sm leading-relaxed text-muted line-clamp-2 flex-1">
                         {finalist.description || 'No description provided.'}
                       </p>
-                    </div>
-
-                    {/* Adviser Column */}
-                    <div className="md:col-span-3 min-w-0 flex items-center justify-between gap-3 mt-3 md:mt-0">
-                      <div className="min-w-0">
-                        <span className="text-[11px] text-muted block md:hidden uppercase font-semibold tracking-wider mb-0.5">
-                          Adviser
-                        </span>
-                        <p className="text-sm font-semibold text-ink truncate">
-                          {finalist.adviser || '–'}
-                        </p>
-                      </div>
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface text-muted transition-all duration-150 group-hover:bg-primary-light group-hover:text-primary group-hover:translate-x-1">
                         <ChevronRight className="h-4 w-4" />
                       </div>

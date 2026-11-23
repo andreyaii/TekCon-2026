@@ -68,14 +68,19 @@ Date: 2026-11-22
   * If evaluator is faculty: checks if `group.Adviser` matches the faculty's `FacultyID` or `FullName`. If so, throws: "Faculty advisers cannot evaluate groups assigned to them."
   * In `action === "getEvaluationEligibility"`, returns `code: "assigned-team"` and `reason: "Faculty advisers cannot evaluate groups assigned to them."` if the group is assigned to that adviser.
 
-[X] 4. FINALISTS PAGE COMPACT COLUMNAR UI & VISUAL POLISH
-- Redesigned into an open, spacious columnar layout:
-  * Added Project Logo on the left side of the project name with fallback monogram/icon badge.
-  * Converted the Pitch Perfect and Research Conference toggles to an interactive Segmented Control (Segmented Tab Control).
-  * Removed the group code badge/column entirely for a cleaner, modern presentation.
+[X] 4. FINALISTS PAGE COMPACT COLUMNAR UI & PUBLISHED PROJECTS
+- Redesigned into an open, spacious columnar layout with a 3-way Segmented Control:
+  * Segmented tabs: "Pitch Perfect", "Research Conference", and "Published Projects" with custom icons.
+  * Pitch Perfect & Research Conference: Removed the adviser column and adviser name completely; space is now dedicated to Project (Logo + Title + Category) and Description with an arrow indicator.
+  * Published Projects: Added dedicated table view reading from the "PublishedProjects" Google Sheet, displaying:
+    - Project Title (with logo)
+    - Paper Title
+    - Publication (venue pill)
+    - Authors
+    - Date & Place
+  * Sheet columns supported in Google Apps Script `Code.gs`: GROUP CODE, PROJECT TITLE, PUBLICATION, Date, PLACE, PAPER TITLE, AUTHORS, RECOGNITION.
   * Replaced custom dark backgrounds with the app's native `.card`, `bg-surface`, and `border-line` tokens so the entire box area, headers, segmented controls, and hover states adapt cleanly and brightly to light mode, while retaining proper contrast in dark mode.
   * Configured Tailwind dark mode (`darkMode: ['selector', '[data-theme="dark"]]`) and synchronized `ThemeContext` (`document.documentElement.classList.toggle('dark')`).
-  * Displayed 3 balanced columns: Project (Logo + Name + Category), Short Description (comfortable line-clamp-2), and Adviser (with interactive arrow pill).
 - Filtered out empty spreadsheet rows from the backend data feed.
 - Made each entire row an accessible, hover-reactive `<Link>` routing to the project detail page with `state: { from: '/finalists', finalist }`.
 
