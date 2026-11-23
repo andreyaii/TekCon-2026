@@ -115,6 +115,17 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => 'test-sheet' }) },
     SpreadsheetApp: { openById: () => spreadsheet },
     DriveApp: {
+      getFileById(id) {
+        return {
+          isTrashed: () => false,
+          getBlob: () => ({
+            name: id + '.png',
+            setName(name) { this.name = name; return this; },
+            getName() { return this.name; },
+            getContentType: () => 'image/png',
+          }),
+        };
+      },
       getFolderById(id) {
         driveFolderScans.set(id, (driveFolderScans.get(id) || 0) + 1);
         const files = driveFolders.get(id);
@@ -146,6 +157,11 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
     Utilities: {
       getUuid: () => 'new-test-student-token',
       formatDate: () => '2026-11-14 09:00:00',
+      zip: (blobs, name) => ({
+        getBytes: () => [80, 75, 3, 4],
+        getName: () => name,
+      }),
+      base64Encode: (bytes) => Buffer.from(bytes).toString('base64'),
     },
     Logger: { log() {} },
     ContentService: {
@@ -203,6 +219,32 @@ test('getFinalists returns empty lists when finalist sheets are unavailable', ()
 
   assert.equal(result.success, true);
   assert.deepEqual(result.data, { pitchPerfect: [], research: [], psc: [] });
+});
+
+test('exportFinalistLogos creates a Drive-backed ZIP for administrators', () => {
+  const backend = createBackend('Admin');
+  backend.sheets.Groups.push([
+    'PITCH-1',
+    'Other Faculty',
+    'Pitch description',
+    'https://example.com/paper.pdf',
+    'https://example.com/pitch.mp4',
+    'https://example.com/poster.pdf',
+    'https://drive.google.com/thumbnail?id=logo-file',
+    'Posted',
+  ]);
+  const result = JSON.parse(backend.doGet({
+    parameter: {
+      action: 'exportFinalistLogos',
+      category: 'pitchPerfect',
+      sessionToken: 'test-token',
+    },
+  }).content);
+
+  assert.equal(result.success, true);
+  assert.equal(result.exportedCount, 1);
+  assert.equal(result.fileName, 'Pitch-Perfect-Logos.zip');
+  assert.equal(result.base64, 'UEsDBA==');
 });
 
 test('Admin analytics uses the authenticated Admin session without an Admin Faculty row or group assignment', () => {

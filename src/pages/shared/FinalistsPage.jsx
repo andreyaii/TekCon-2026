@@ -1,14 +1,15 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Calendar, ChevronRight, FlaskConical, MapPin, Rocket, Sparkles, Trophy } from 'lucide-react';
+import { BookOpen, Calendar, ChevronRight, Download, FlaskConical, MapPin, Rocket, Sparkles, Trophy } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import { EmptyState, ErrorState, Loading } from '../../components/Feedback';
 import { useAsync } from '../../hooks/useAsync';
 import { useAuth } from '../../context/AuthContext';
-import { getFinalists, getPublishedProjects } from '../../services/finalistService';
+import { exportFinalistLogos, getFinalists, getPublishedProjects } from '../../services/finalistService';
 import { getProjects } from '../../services/projectService';
-import { basePathFor } from '../../utils/roles';
+import { basePathFor, isAdmin } from '../../utils/roles';
 import { getProjectLogoUrl } from '../../utils/projectLogo';
+import { useToast } from '../../context/ToastContext';
 
 const competitions = [
   {
@@ -67,7 +68,9 @@ function ProjectLogoThumb({ logoUrl, title }) {
 
 export default function FinalistsPage() {
   const { user } = useAuth();
+  const toast = useToast();
   const [activeCompetition, setActiveCompetition] = useState(competitions[0].id);
+  const [exportingLogos, setExportingLogos] = useState(false);
 
   const { data, loading, error, reload } = useAsync(
     async (force) => {
@@ -96,7 +99,10 @@ export default function FinalistsPage() {
   const projectsByCode = useMemo(() => {
     const map = new Map();
     (data?.projects || []).forEach((p) => {
-      const code = String(p.groupId || p.id || p.groupCode || '').trim().toLowerCase();
+      const code = String(p.groupId || p.id || p.groupCode || '')
+        .trim()
+        .replace(/\s+/g, '')
+        .toLowerCase();
       if (code) map.set(code, p);
     });
     return map;
@@ -121,6 +127,18 @@ export default function FinalistsPage() {
   });
 
   const basePath = basePathFor(user);
+
+  const handleExportLogos = async () => {
+    setExportingLogos(true);
+    try {
+      const exportedCount = await exportFinalistLogos(activeCompetition);
+      toast.success(`Downloaded ${exportedCount} finalist logo${exportedCount === 1 ? '' : 's'}.`);
+    } catch (exportError) {
+      toast.error(exportError.message || 'Could not export finalist logos.');
+    } finally {
+      setExportingLogos(false);
+    }
+  };
 
   return (
     <div className="relative isolate">
@@ -375,6 +393,20 @@ export default function FinalistsPage() {
           </div>
         )}
       </section>
+
+      {isAdmin(user) && (
+        <div className="mt-6 flex justify-end">
+          <button
+            type="button"
+            className="btn-primary inline-flex items-center gap-2"
+            onClick={handleExportLogos}
+            disabled={exportingLogos}
+          >
+            <Download className="h-4 w-4" />
+            {exportingLogos ? 'Preparing logos...' : `Export ${competition.label} Logos`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

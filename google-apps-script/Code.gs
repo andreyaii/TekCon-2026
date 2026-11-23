@@ -627,6 +627,106 @@ function doGet(e) {
       });
     }
 
+    if (action === "exportFinalistLogos") {
+      getAuthenticatedAdmin(e.parameter.sessionToken);
+
+      const category = String(e.parameter.category || "").trim();
+      const categoryConfig = {
+        pitchPerfect: {
+          label: "Pitch Perfect",
+          sheetName: "PitchPerfectFinalist",
+          headerRow: 1
+        },
+        research: {
+          label: "Research Conference",
+          sheetName: "ResearchFinalist",
+          headerRow: 1
+        },
+        publishedProjects: {
+          label: "Published Projects",
+          sheetName: "PublishedProjects",
+          headerRow: 1
+        },
+        psc: {
+          label: "PSC Finalist",
+          sheetName: "PSC Finalist",
+          headerRow: 2
+        }
+      };
+
+      if (!categoryConfig[category]) {
+        throw new Error("Invalid finalist category.");
+      }
+
+      const config = categoryConfig[category];
+      const finalists = category === "publishedProjects"
+        ? getPublishedProjectRows(spreadsheet, config.sheetName)
+        : getFinalistRows(spreadsheet, config.sheetName, config.headerRow);
+
+      if (finalists.length === 0) {
+        throw new Error("No finalists are available in " + config.label + ".");
+      }
+
+      const projects = getPublicGroups(spreadsheet);
+      const projectsByCode = {};
+      projects.forEach(function(project) {
+        projectsByCode[normalizeGroupCode(project.groupCode)] = project;
+      });
+
+      const logoBlobs = [];
+      let failedLogoCount = 0;
+      finalists.forEach(function(finalist) {
+        const groupCode = String(finalist.groupCode || "").trim();
+        if (!groupCode) return;
+
+        const project = projectsByCode[normalizeGroupCode(groupCode)];
+        const thumbnail = project && project.thumbnail
+          ? project.thumbnail
+          : "";
+        if (!thumbnail) return;
+
+        try {
+          const fileId = getThumbnailFileId(thumbnail);
+          const file = DriveApp.getFileById(fileId);
+          if (file.isTrashed()) return;
+
+          const blob = file.getBlob();
+          const safeCode = groupCode.replace(/[^a-z0-9_-]+/gi, "-");
+          const originalName = blob.getName() || "logo";
+          const extensionMatch = originalName.match(/\.([a-z0-9]+)$/i);
+          const extension = extensionMatch
+            ? extensionMatch[1].toLowerCase()
+            : (blob.getContentType() === "image/png" ? "png" : "jpg");
+
+          blob.setName(safeCode + "." + extension);
+          logoBlobs.push(blob);
+        } catch (error) {
+          failedLogoCount += 1;
+          Logger.log("Could not export logo for " + groupCode + ": " + error.message);
+        }
+      });
+
+      if (logoBlobs.length === 0) {
+        throw new Error(
+          "No accessible logos were found for " + config.label +
+          ". Check that finalist group codes match the Groups sheet and that their Drive logos are accessible." +
+          (failedLogoCount ? " " + failedLogoCount + " logo file(s) could not be read." : "")
+        );
+      }
+
+      const zipName = config.label.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") + "-Logos.zip";
+      const zipBlob = Utilities.zip(logoBlobs, zipName);
+      const base64 = Utilities.base64Encode(zipBlob.getBytes());
+
+      return responseJSON({
+        success: true,
+        fileName: zipName,
+        mimeType: "application/zip",
+        base64: base64,
+        exportedCount: logoBlobs.length
+      });
+    }
+
     // PUBLISHED PROJECTS
     if (action === "getPublishedProjects") {
       return responseJSON({

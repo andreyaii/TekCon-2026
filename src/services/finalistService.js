@@ -40,6 +40,36 @@ export async function getPublishedProjects() {
   return [];
 }
 
+export async function exportFinalistLogos(category) {
+  if (!category) throw new Error('A finalist category is required.');
+  const response = await request('exportFinalistLogos', {
+    authenticated: true,
+    query: { category },
+  });
+
+  if (!response.base64 || !response.fileName || !response.exportedCount) {
+    throw new Error('The server returned an invalid finalist logo archive.');
+  }
+
+  const binary = atob(response.base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  const blob = new Blob([bytes], { type: response.mimeType || 'application/zip' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = response.fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  return response.exportedCount;
+}
+
 export async function getFinalists() {
   const response = await request('getFinalists');
   if (!response.data || typeof response.data !== 'object' || Array.isArray(response.data)) {
