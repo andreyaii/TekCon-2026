@@ -49,6 +49,9 @@ export async function getFinalists() {
   const result = {
     pitchPerfect: validateFinalists(response.data.pitchPerfect, 'Pitch Perfect'),
     research: validateFinalists(response.data.research, 'Research Conference'),
+    psc: response.data.psc && Array.isArray(response.data.psc)
+      ? validateFinalists(response.data.psc, 'PSC')
+      : [],
   };
 
   if (response.data.publishedProjects && Array.isArray(response.data.publishedProjects)) {

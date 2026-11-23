@@ -677,6 +677,7 @@ test('finalists are loaded through the shared read-only API action', async () =>
   apiFinalists = {
     pitchPerfect: [{ groupCode: 'P-1', projectName: 'Pitch', description: 'Pitch description', category: 'Innovation', adviser: 'A. One' }],
     research: [{ groupCode: 'R-1', projectName: 'Research', description: 'Research description', category: 'Research', adviser: 'A. Two' }],
+    psc: [],
   };
 
   assert.deepEqual(await getFinalists(), apiFinalists);

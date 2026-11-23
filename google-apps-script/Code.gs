@@ -138,47 +138,49 @@ function getRequiredSheet(spreadsheet, sheetName) {
   return sheet;
 }
 
-function getFinalistRows(spreadsheet, sheetName) {
-  const sheet = spreadsheet.getSheetByName(sheetName);
+function getFinalistRows(spreadsheet, sheetName, headerRowNumber) {
+  const sheet = spreadsheet.getSheetByName(sheetName) ||
+    spreadsheet.getSheetByName(sheetName.replace(/\s+/g, ""));
+  const headerRow = Number(headerRowNumber) > 0 ? Number(headerRowNumber) : 1;
 
-  if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 1) {
+  if (!sheet || sheet.getLastRow() < headerRow + 1 || sheet.getLastColumn() < 1) {
     return [];
   }
 
   const rows = sheet.getDataRange().getDisplayValues();
-  const headers = rows.shift().map(function(header) {
+  const headers = (rows[headerRow - 1] || []).map(function(header) {
     return String(header).trim();
   });
+  const dataRows = rows.slice(headerRow);
   const fields = {
-    groupCode: "GROUP CODE",
-    projectName: "PROJECT NAME",
-    description: "DESCRIPTION",
-    category: "CATEGORY",
-    adviser: "ADVISER"
+    groupCode: ["GROUP CODE", "GROUPCODE", "GROUP"],
+    projectName: ["PROJECT NAME", "PROJECT TITLE", "PROJECTNAME", "PROJECTTITLE", "TITLE"],
+    description: ["DESCRIPTION", "DESC"],
+    category: ["CATEGORY"],
+    adviser: ["ADVISER"]
   };
   const indexes = {};
 
   Object.keys(fields).forEach(function(field) {
-    indexes[field] = getHeaderIndex(headers, [fields[field]]);
+    indexes[field] = getHeaderIndex(headers, fields[field]);
   });
 
-  if (Object.keys(indexes).some(function(field) {
-    return indexes[field] < 0;
-  })) {
+  if (indexes.groupCode < 0 || indexes.projectName < 0) {
     return [];
   }
 
-  return rows
+  return dataRows
     .filter(function(row) {
       return row.some(function(cell) {
-        return cell !== "";
+        return String(cell).trim() !== "";
       });
     })
     .map(function(row) {
       const finalist = {};
 
-      Object.keys(indexes).forEach(function(field) {
-        finalist[field] = row[indexes[field]] || "";
+      Object.keys(fields).forEach(function(field) {
+        const index = indexes[field];
+        finalist[field] = index >= 0 ? (row[index] || "") : "";
       });
 
       return finalist;
@@ -612,7 +614,8 @@ function doGet(e) {
     if (action === "getFinalists") {
       const finalistData = {
         pitchPerfect: getFinalistRows(spreadsheet, "PitchPerfectFinalist"),
-        research: getFinalistRows(spreadsheet, "ResearchFinalist")
+        research: getFinalistRows(spreadsheet, "ResearchFinalist"),
+        psc: getFinalistRows(spreadsheet, "PSC Finalist", 2)
       };
       const pubSheet = spreadsheet.getSheetByName("PublishedProjects");
       if (pubSheet) {

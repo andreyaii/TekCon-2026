@@ -50,6 +50,11 @@ function createBackend(role, facultyRows = [['FAC-2', 'Faculty Evaluator', 'Advi
       ['NO.', 'ADVISER', 'CATEGORY', 'DESCRIPTION', 'PROJECT NAME', 'GROUP CODE'],
       [9, 'Adviser Two', 'Research', 'Research description', 'Research Project', 'RES-2'],
     ],
+    'PSC Finalist': [
+      ['', '', ''],
+      ['GROUP CODE', 'PROJECT TITLE', 'DESCRIPTION'],
+      ['PSC-1', 'PSC Project', 'PSC description'],
+    ],
   };
   const cache = new Map([[
     'faculty-session:test-token',
@@ -180,16 +185,24 @@ test('getFinalists reads the named columns and ignores the Research numbering co
     category: 'Research',
     adviser: 'Adviser Two',
   }]);
+  assert.deepEqual(result.data.psc, [{
+    groupCode: 'PSC-1',
+    projectName: 'PSC Project',
+    description: 'PSC description',
+    category: '',
+    adviser: '',
+  }]);
 });
 
 test('getFinalists returns empty lists when finalist sheets are unavailable', () => {
   const backend = createBackend('Adviser');
   delete backend.sheets.PitchPerfectFinalist;
   delete backend.sheets.ResearchFinalist;
+  delete backend.sheets['PSC Finalist'];
   const result = JSON.parse(backend.doGet({ parameter: { action: 'getFinalists' } }).content);
 
   assert.equal(result.success, true);
-  assert.deepEqual(result.data, { pitchPerfect: [], research: [] });
+  assert.deepEqual(result.data, { pitchPerfect: [], research: [], psc: [] });
 });
 
 test('Admin analytics uses the authenticated Admin session without an Admin Faculty row or group assignment', () => {
