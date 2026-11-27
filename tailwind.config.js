@@ -14,6 +14,18 @@ export default {
         ink: 'rgb(var(--color-ink) / <alpha-value>)',
         muted: 'rgb(var(--color-muted) / <alpha-value>)',
         star: '#f5c518',
+        plum: {
+          charcoal: '#433C49',
+          muted: '#6F6674',
+          dark: '#2D2A35',
+        },
+        gold: {
+          DEFAULT: '#D4AF37',
+          light: '#FDF6E2',
+          dark: '#997300',
+          accent: '#F59E0B',
+          glow: '#FDE68A',
+        },
       },
       fontFamily: {
         display: ['Syne', 'sans-serif'],

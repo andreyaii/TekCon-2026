@@ -6,6 +6,7 @@ import { checkEligibility } from '../src/services/evaluationAssignment.js';
 import { getAdminRatingAnalytics, getAggregates, getEligibility, getEvaluationStatus, getFacultyEvaluationData, getStudentEvaluationData, submitEvaluation } from '../src/services/evaluationService.js';
 import { getProjects, updateGroupDescription } from '../src/services/projectService.js';
 import { getFinalists } from '../src/services/finalistService.js';
+import { getWinners, validateWinners } from '../src/services/winnerService.js';
 import { getSettings } from '../src/services/settingsService.js';
 import { calcOverall } from '../src/utils/ratings.js';
 import { getProjectLogoUrl } from '../src/utils/projectLogo.js';
@@ -22,6 +23,7 @@ let apiEvaluations;
 let apiGroups;
 let apiSettings;
 let apiFinalists;
+let apiWinners;
 let currentStudent;
 let apiFailure;
 let requestCounts;
@@ -101,6 +103,7 @@ beforeEach(() => {
   }));
   apiSettings = { EvaluationAssignmentMethod: 'free-select', CommentMaxLength: '500' };
   apiFinalists = { pitchPerfect: [], research: [] };
+  apiWinners = [];
   apiFailure = false;
   requestCounts = new Map();
   globalThis.fetch = async (url, options = {}) => {
@@ -114,6 +117,7 @@ beforeEach(() => {
 
     if (action === 'getSettings') return response({ success: true, data: apiSettings });
     if (action === 'getFinalists') return response({ success: true, data: apiFinalists });
+    if (action === 'getWinners') return response({ success: true, data: apiWinners });
     if (action === 'getProjects') return response({ success: true, data: apiGroups });
     if (action === 'getRatingAnalytics') {
       return response({
@@ -846,4 +850,90 @@ test('faculty project assignment badges compare string and numeric IDs safely', 
     ),
     false,
   );
+});
+
+test('validateWinners filters out unpublished records and normalizes fields', () => {
+  const records = [
+    {
+      winnerId: 'W-01',
+      event: 'TEKCON',
+      awardCategory: 'Major Awards',
+      awardTitle: 'Champion',
+      groupCode: 'CS-01',
+      awardYear: '2026',
+      displayOrder: '1',
+      isPublished: 'TRUE',
+    },
+    {
+      winnerId: 'W-02',
+      event: 'TEKCON',
+      awardCategory: 'Major Awards',
+      awardTitle: '2nd Place',
+      groupCode: 'CS-02',
+      awardYear: '2026',
+      displayOrder: 2,
+      isPublished: true,
+    },
+    {
+      winnerId: 'W-03',
+      event: 'TEKCON',
+      awardCategory: 'Major Awards',
+      awardTitle: '3rd Place',
+      groupCode: 'CS-03',
+      awardYear: '2026',
+      displayOrder: '3',
+      isPublished: 'FALSE', // Should be excluded
+    },
+    {
+      winnerId: 'W-04',
+      event: 'TEKCON',
+      awardCategory: 'Draft Award',
+      awardTitle: 'Unpublished Draft',
+      groupCode: 'CS-04',
+      awardYear: '2026',
+      displayOrder: '4',
+      isPublished: '', // Should be excluded
+    },
+  ];
+
+  const validated = validateWinners(records);
+  assert.equal(validated.length, 2);
+  assert.equal(validated[0].winnerId, 'W-01');
+  assert.equal(validated[0].displayOrder, 1);
+  assert.equal(validated[0].isPublished, true);
+  assert.equal(validated[1].winnerId, 'W-02');
+  assert.equal(validated[1].displayOrder, 2);
+  assert.equal(validated[1].isPublished, true);
+});
+
+test('getWinners returns clean list from API and handles empty state without mock data', async () => {
+  apiWinners = [
+    {
+      winnerId: 'W-10',
+      event: 'PITCHPERFECT',
+      awardCategory: 'Pitch Winners',
+      awardTitle: 'Best Pitch Champion',
+      groupCode: 'PP-01',
+      awardYear: '2026',
+      displayOrder: 1,
+      isPublished: 'true',
+    },
+  ];
+
+  const result = await getWinners();
+  assert.equal(result.length, 1);
+  assert.equal(result[0].winnerId, 'W-10');
+  assert.equal(result[0].event, 'PITCHPERFECT');
+
+  // When API returns empty or errors, returns empty array with no mock data
+  apiWinners = [];
+  assert.deepEqual(await getWinners(), []);
+
+  apiFailure = true;
+  assert.deepEqual(await getWinners(), []);
+});
+
+test('Hall of Fame navigation is registered for student and faculty roles', () => {
+  assert.ok(studentNav.some(({ to, label }) => to === '/student/hall-of-fame' && label === 'Hall of Fame'));
+  assert.ok(facultyNav.some(({ to, label }) => to === '/faculty/hall-of-fame' && label === 'Hall of Fame'));
 });

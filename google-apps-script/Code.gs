@@ -232,6 +232,61 @@ function getPublishedProjectRows(spreadsheet, sheetName) {
     });
 }
 
+function getWinnersRows(spreadsheet) {
+  const sheet = spreadsheet.getSheetByName("Winners") ||
+    spreadsheet.getSheetByName("winners") ||
+    spreadsheet.getSheetByName("WINNERS");
+
+  if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 1) {
+    return [];
+  }
+
+  const rows = sheet.getDataRange().getDisplayValues();
+  const headers = rows.shift().map(function(header) {
+    return String(header).trim();
+  });
+
+  const fields = {
+    winnerId: ["WINNERID", "WINNER ID", "ID"],
+    event: ["EVENT"],
+    awardCategory: ["AWARDCATEGORY", "AWARD CATEGORY", "CATEGORY"],
+    awardTitle: ["AWARDTITLE", "AWARD TITLE", "TITLE", "AWARD"],
+    groupCode: ["GROUPCODE", "GROUP CODE", "GROUP"],
+    awardYear: ["AWARDYEAR", "AWARD YEAR", "YEAR"],
+    displayOrder: ["DISPLAYORDER", "DISPLAY ORDER", "ORDER"],
+    isPublished: ["ISPUBLISHED", "IS PUBLISHED", "PUBLISHED"]
+  };
+  const indexes = {};
+
+  Object.keys(fields).forEach(function(field) {
+    indexes[field] = getHeaderIndex(headers, fields[field]);
+  });
+
+  return rows
+    .filter(function(row) {
+      return row.some(function(cell) {
+        return String(cell).trim() !== "";
+      });
+    })
+    .map(function(row) {
+      const item = {};
+
+      Object.keys(fields).forEach(function(field) {
+        const index = indexes[field];
+        item[field] = index >= 0 ? (row[index] || "") : "";
+      });
+
+      const parsedOrder = parseInt(item.displayOrder, 10);
+      item.displayOrder = !isNaN(parsedOrder) ? parsedOrder : item.displayOrder;
+
+      return item;
+    })
+    .filter(function(item) {
+      const pub = String(item.isPublished).trim().toLowerCase();
+      return pub === "true" || pub === "1" || pub === "yes";
+    });
+}
+
 function responseJSON(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
@@ -624,6 +679,13 @@ function doGet(e) {
       return responseJSON({
         success: true,
         data: finalistData
+      });
+    }
+
+    if (action === "getWinners") {
+      return responseJSON({
+        success: true,
+        data: getWinnersRows(spreadsheet)
       });
     }
 

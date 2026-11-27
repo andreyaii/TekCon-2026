@@ -16,6 +16,7 @@ import { useAuth } from './context/AuthContext';
 import { homePathFor, isAdmin, isFaculty, isGuest, isStudent } from './utils/roles';
 import RatingAnalyticsPage from './pages/faculty/RatingAnalyticsPage';
 import FinalistsPage from './pages/shared/FinalistsPage';
+import HallOfFamePage from './pages/shared/HallOfFamePage';
 
 export default function App() {
   const { user } = useAuth();
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="my-group" element={<MyGroupPage />} />
           <Route path="explore" element={<ExplorePage />} />
           <Route path="finalists" element={<FinalistsPage />} />
+          <Route path="hall-of-fame" element={<HallOfFamePage />} />
           <Route path="projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="projects/:projectId/evaluate" element={<EvaluatePage />} />
           <Route path="evaluations" element={<MyEvaluationsPage />} />
@@ -42,6 +44,7 @@ export default function App() {
           <Route path="all-projects" element={<AllProjectsPage />} />
           <Route path="my-teams" element={<MyTeamsPage />} />
           <Route path="finalists" element={<FinalistsPage />} />
+          <Route path="hall-of-fame" element={<HallOfFamePage />} />
           <Route path="evaluations" element={<FacultyMyEvaluationsPage />} />
           <Route path="projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="projects/:projectId/evaluate" element={<EvaluatePage />} />
@@ -57,6 +60,7 @@ export default function App() {
           <Route index element={<Navigate to="all-projects" replace />} />
           <Route path="all-projects" element={<AllProjectsPage />} />
           <Route path="finalists" element={<FinalistsPage />} />
+          <Route path="hall-of-fame" element={<HallOfFamePage />} />
           <Route path="projects/:projectId" element={<ProjectDetailPage />} />
         </Route>
       </Route>

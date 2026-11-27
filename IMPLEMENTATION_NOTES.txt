@@ -98,6 +98,32 @@ Date: 2026-11-22
 - Hardened `src/layouts/AppLayout.jsx`: Added optional chaining (`user?.name || ''`) to avoid runtime crashes if `user` is null during transitions.
 - Created `src/components/ErrorBoundary.jsx` and wrapped the application in `src/main.jsx` to catch any runtime exceptions gracefully instead of turning the screen black.
 
+[X] 6. HALL OF FAME PAGE & WINNERS INTEGRATION
+- Added dedicated Hall of Fame page (`src/pages/shared/HallOfFamePage.jsx`) to showcase TEKCON and PITCHPERFECT winners.
+- Design System & Color Palette:
+  * Charcoal Plum: `#433C49`
+  * Muted Plum: `#6F6674`
+  * Primary Text: `#2D2A35`
+  * Gold accents: `#D4AF37`, `#F59E0B`, `#E5B83B`, and `#FEF9C3`
+  * Subtle ambient background gradient with floating geometric shapes matching login/finalists design.
+  * Fully responsive and compatible with both light mode and dark mode.
+- Interactive Controls & Layout:
+  * Hero banner titled "Hall of Fame" with subtitle and live honoree count.
+  * Event Segmented Control: Toggle switch between "TEKCON" and "PITCHPERFECT" with keyboard accessibility.
+  * Year Filter: Dynamically populated from `AwardYear` values in the fetched records, supporting "All Years" and specific award years.
+  * Category Grouping: Winners are grouped by `AwardCategory`.
+  * Podium Layout: 1st (Gold, elevated center pedestal), 2nd (Silver, left), and 3rd (Bronze, right) place winners displayed in an elegant visual hierarchy.
+  * Other Award Cards: Additional category awards and special citations displayed in clean, responsive cards.
+  * Project Referencing: References existing project records via `GroupCode` to show project logo/initials, project title, description, and faculty adviser, with clickable routing to `${basePath}/projects/${groupCode}`.
+- Database & Google Apps Script Backend:
+  * Connected to Google Sheets `Winners` sheet via action `getWinners` in `google-apps-script/Code.gs`.
+  * Column mapping: `WinnerID, Event, AwardCategory, AwardTitle, GroupCode, AwardYear, DisplayOrder, IsPublished`.
+  * Filters and displays only records where `IsPublished` is TRUE.
+  * Zero mock data: If the sheet is empty or unavailable, displays a clean empty state rather than hardcoded dummy records.
+- Routes & Navigation:
+  * Registered `/student/hall-of-fame`, `/faculty/hall-of-fame`, and `/guest/hall-of-fame` in `src/App.jsx`.
+  * Added navigation entries to `studentNav` and `facultyNav` in `src/config/navigation.js` with `Award` icon.
+
 --------------------------------------------------------------------------------
 2. FILES MODIFIED / CREATED
 --------------------------------------------------------------------------------
