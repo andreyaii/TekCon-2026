@@ -18,6 +18,7 @@ import { getWinners } from '../../services/winnerService';
 import { getProjects } from '../../services/projectService';
 import { basePathFor } from '../../utils/roles';
 import { getProjectLogoUrl } from '../../utils/projectLogo';
+import { groupWinnersByGroup } from '../../utils/winnerAwards';
 
 const EVENTS = [
   {
@@ -160,7 +161,7 @@ function PodiumCard({ place, winner, project, basePath }) {
             <ProjectLogoThumb logoUrl={logoUrl} title={projectTitle} size={isGold ? 'lg' : 'md'} />
             <div className="min-w-0 flex-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-[#FF5500] block mb-0.5 truncate">
-                {winner.awardTitle || config.badgeLabel}
+                {(winner.awardTitles?.length ? winner.awardTitles : [winner.awardTitle || config.badgeLabel]).join(' • ')}
               </span>
               <h4 className="font-bold text-base sm:text-lg text-ink leading-snug group-hover:text-[#FF5500] transition-colors line-clamp-2">
                 {projectTitle}
@@ -210,6 +211,12 @@ function AwardCard({ winner, project, basePath }) {
   const adviser = project?.facultyId || project?.adviser || '';
   const logoUrl = project ? getProjectLogoUrl(project) : '';
   const projectLink = `${basePath}/projects/${encodeURIComponent(groupCode)}`;
+  const awardTitles = winner.awardTitles?.length
+    ? winner.awardTitles
+    : [winner.awardTitle || 'Special Award'];
+  const awardCategories = winner.awardCategories?.length
+    ? winner.awardCategories
+    : [winner.awardCategory || 'Recognition'];
 
   return (
     <Link
@@ -219,11 +226,15 @@ function AwardCard({ winner, project, basePath }) {
     >
       <div>
         {/* Award Title Badge & Group Code */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF5500]/10 px-2.5 py-1 text-xs font-bold text-[#FF5500] border border-[#FF5500]/30">
-            <Award className="h-3.5 w-3.5 text-[#FF5500] shrink-0" />
-            <span className="truncate max-w-[200px]">{winner.awardTitle || 'Special Award'}</span>
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {awardTitles.map((title) => (
+              <span key={title} className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF5500]/10 px-2.5 py-1 text-xs font-bold text-[#FF5500] border border-[#FF5500]/30">
+                <Award className="h-3.5 w-3.5 text-[#FF5500] shrink-0" />
+                <span className="truncate max-w-[200px]">{title}</span>
+              </span>
+            ))}
+          </div>
           {groupCode && (
             <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded border border-line bg-surface text-muted">
               {groupCode}
@@ -256,7 +267,7 @@ function AwardCard({ winner, project, basePath }) {
       </div>
 
       <div className="mt-4 pt-3 border-t border-line/60 flex items-center justify-between text-xs text-muted">
-        <span className="text-[11px] text-muted truncate max-w-[160px]">{winner.awardCategory || 'Recognition'}</span>
+        <span className="text-[11px] text-muted truncate max-w-[70%]">{awardCategories.join(', ')}</span>
         <span className="font-semibold text-[#FF5500] flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
           Details <ChevronRight className="h-3.5 w-3.5" />
         </span>
@@ -337,9 +348,11 @@ export default function HallOfFamePage() {
   // Group filtered winners by award category
   const categories = useMemo(() => {
     const isPitchPerfect = normalizeEvent(activeEvent) === 'PITCHPERFECT';
+    const deduplicate = normalizeEvent(activeEvent) === 'TEKCON';
     const categoryMap = new Map();
+    const groupedWinners = groupWinnersByGroup(filteredWinners, { deduplicate, isPitchPerfect });
 
-    filteredWinners.forEach((winner) => {
+    groupedWinners.forEach((winner) => {
       const cat = String(winner.awardCategory || '').trim() || 'Major Awards';
       if (!categoryMap.has(cat)) {
         categoryMap.set(cat, []);
@@ -357,15 +370,11 @@ export default function HallOfFamePage() {
       const others = [];
 
       winners.forEach((winner) => {
-        const title = String(winner.awardTitle || '').toLowerCase();
-        const order = Number(winner.displayOrder);
-
-        // Only PITCHPERFECT utilizes the 3-position podium layout for Champion and runners-up
-        if (isPitchPerfect && (order === 1 || /1st|first|champion|gold|grand champion/i.test(title)) && !first) {
+        if (winner.podiumPlace === 1 && !first) {
           first = winner;
-        } else if (isPitchPerfect && (order === 2 || /2nd|second|1st runner[- ]?up|silver/i.test(title)) && !second) {
+        } else if (winner.podiumPlace === 2 && !second) {
           second = winner;
-        } else if (isPitchPerfect && (order === 3 || /3rd|third|2nd runner[- ]?up|bronze/i.test(title)) && !third) {
+        } else if (winner.podiumPlace === 3 && !third) {
           third = winner;
         } else {
           others.push(winner);
@@ -385,6 +394,8 @@ export default function HallOfFamePage() {
 
     return result;
   }, [filteredWinners, activeEvent]);
+
+  const totalHonorees = categories.reduce((total, category) => total + category.total, 0);
 
   return (
     <div className="relative isolate">
@@ -407,9 +418,9 @@ export default function HallOfFamePage() {
 
         {/* Soft atmospheric orange glow */}
         <div
-          className="absolute -top-20 left-1/2 -translate-x-1/2 h-[380px] w-[650px] -z-10 rounded-full blur-3xl opacity-20 dark:opacity-30"
+          className="absolute top-0 left-1/2 -translate-x-1/2 h-[380px] w-[650px] -z-10 rounded-full blur-3xl opacity-20 dark:opacity-30"
           style={{
-            background: 'radial-gradient(circle, #FF5500 0%, rgba(255, 85, 0, 0.12) 50%, transparent 75%)',
+            background: 'radial-gradient(ellipse at 50% 0%, #FF5500 0%, rgba(255, 85, 0, 0.12) 50%, transparent 75%)',
           }}
         />
 
@@ -447,7 +458,7 @@ export default function HallOfFamePage() {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Total Honorees</p>
             <p className="text-xl font-bold text-ink leading-tight">
-              {filteredWinners.length}
+              {totalHonorees}
             </p>
           </div>
         </div>

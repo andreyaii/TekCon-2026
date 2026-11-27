@@ -12,6 +12,7 @@ import { calcOverall } from '../src/utils/ratings.js';
 import { getProjectLogoUrl } from '../src/utils/projectLogo.js';
 import { hasCriterionSubmission } from '../src/utils/evaluationResources.js';
 import { getSafeResourceUrl } from '../src/utils/resourceUrl.js';
+import { groupWinnersByGroup } from '../src/utils/winnerAwards.js';
 import { isProjectAssignedToFaculty } from '../src/utils/faculty.js';
 import { isGuest, isFaculty, isStudent, isAdmin, canViewRatings, canToggleRatings, homePathFor, basePathFor } from '../src/utils/roles.js';
 import { guestNav, studentNav, facultyNav } from '../src/config/navigation.js';
@@ -904,6 +905,54 @@ test('validateWinners filters out unpublished records and normalizes fields', ()
   assert.equal(validated[1].winnerId, 'W-02');
   assert.equal(validated[1].displayOrder, 2);
   assert.equal(validated[1].isPublished, true);
+});
+
+test('multi-award groups appear once with all awards and their podium placement', () => {
+  const grouped = groupWinnersByGroup([
+    {
+      winnerId: 'W-20',
+      groupCode: 'TEAM-01',
+      awardCategory: 'Research Conference',
+      awardTitle: 'Best Paper',
+      displayOrder: 999,
+    },
+    {
+      winnerId: 'W-21',
+      groupCode: 'team 01',
+      awardCategory: 'Special Recognition',
+      awardTitle: 'Champion',
+      displayOrder: 1,
+    },
+  ], { deduplicate: true, isPitchPerfect: true });
+
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].winnerId, 'W-21');
+  assert.equal(grouped[0].podiumPlace, 1);
+  assert.deepEqual(grouped[0].awardTitles, ['Best Paper', 'Champion']);
+  assert.deepEqual(grouped[0].awardCategories, ['Research Conference', 'Special Recognition']);
+});
+
+test('Pitch Perfect keeps distinct runner-up podium positions and does not deduplicate groups', () => {
+  const grouped = groupWinnersByGroup([
+    {
+      winnerId: 'W-30',
+      groupCode: 'TEAM-02',
+      awardCategory: 'Pitching Competition',
+      awardTitle: '1st Runner Up',
+      displayOrder: 2,
+    },
+    {
+      winnerId: 'W-31',
+      groupCode: 'TEAM-02',
+      awardCategory: 'Pitching Competition',
+      awardTitle: '2nd Runner Up',
+      displayOrder: 3,
+    },
+  ], { isPitchPerfect: true });
+
+  assert.equal(grouped.length, 2);
+  assert.equal(grouped[0].podiumPlace, 2);
+  assert.equal(grouped[1].podiumPlace, 3);
 });
 
 test('getWinners returns clean list from API and handles empty state without mock data', async () => {
