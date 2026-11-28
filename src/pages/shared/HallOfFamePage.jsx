@@ -89,42 +89,48 @@ function PodiumCard({ place, winner, project, basePath }) {
       badgeBg: 'bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-400 text-stone-950 font-extrabold',
       badgeBorder: 'border-amber-300 shadow-xs',
       badgeLabel: '1st Place',
-      pedestalHeight: 'h-24 md:h-28',
+      pedestalHeight: 'h-14 md:h-28',
+      pedestalLabel: 'CHAMPION',
+      rankTextSize: 'text-4xl md:text-5xl',
       cardBorder: 'border-2 border-amber-400 dark:border-amber-400/80 shadow-xl shadow-amber-500/20 ring-1 ring-amber-300/50',
       cardBg: 'bg-gradient-to-b from-amber-50/70 via-surface to-surface dark:from-[#1c1712] dark:via-[#121218] dark:to-[#121218]',
       pedestalBg: 'bg-gradient-to-b from-amber-400/25 via-amber-400/10 to-transparent dark:from-amber-500/20 dark:to-transparent border-t-2 border-amber-400',
       stepTextColor: 'text-amber-600 dark:text-amber-400/60',
-      emphasisClass: 'md:scale-105 md:z-10',
+      emphasisClass: 'md:-translate-y-3 md:scale-105 md:z-10',
       icon: Crown,
       stepNumber: '1',
       scaleHover: 'hover:-translate-y-1.5',
     },
     2: {
       orderClass: 'order-2 md:order-1',
-      badgeBg: 'bg-gradient-to-r from-slate-200 to-slate-400 text-stone-900 font-bold',
-      badgeBorder: 'border-slate-300 shadow-xs',
+      badgeBg: 'bg-gradient-to-r from-slate-100 via-slate-300 to-slate-400 text-slate-950 font-extrabold',
+      badgeBorder: 'border-slate-300 shadow-md',
       badgeLabel: '2nd Place',
-      pedestalHeight: 'h-16 md:h-20',
-      cardBorder: 'border border-slate-300 dark:border-slate-600 shadow-card',
+      pedestalHeight: 'h-12 md:h-20',
+      pedestalLabel: 'RUNNER-UP',
+      rankTextSize: 'text-3xl md:text-4xl',
+      cardBorder: 'border-2 border-slate-300 dark:border-slate-500 shadow-lg shadow-slate-500/10',
       cardBg: 'bg-gradient-to-b from-slate-50/80 via-surface to-surface dark:from-[#16171d] dark:via-[#121218] dark:to-[#121218]',
       pedestalBg: 'bg-gradient-to-b from-slate-200 via-slate-100 to-transparent dark:from-slate-400/15 dark:to-transparent border-t border-slate-300 dark:border-slate-500',
-      stepTextColor: 'text-slate-600 dark:text-slate-400/50',
-      emphasisClass: '',
+      stepTextColor: 'text-slate-700 dark:text-slate-300',
+      emphasisClass: 'md:-translate-y-1',
       icon: Medal,
       stepNumber: '2',
       scaleHover: 'hover:-translate-y-1',
     },
     3: {
       orderClass: 'order-3 md:order-3',
-      badgeBg: 'bg-gradient-to-r from-[#9A5B2D] to-[#704020] text-white font-bold',
-      badgeBorder: 'border-[#8C4A20] shadow-xs',
+      badgeBg: 'bg-gradient-to-r from-[#C98243] via-[#A85F32] to-[#7A401E] text-white font-extrabold',
+      badgeBorder: 'border-[#B96A35] shadow-md',
       badgeLabel: '3rd Place',
-      pedestalHeight: 'h-12 md:h-14',
-      cardBorder: 'border border-[#8C4A20]/40 dark:border-[#8C4A20]/70 shadow-card',
+      pedestalHeight: 'h-10 md:h-14',
+      pedestalLabel: '2ND RUNNER-UP',
+      rankTextSize: 'text-3xl md:text-4xl',
+      cardBorder: 'border-2 border-[#B87333]/60 dark:border-[#B87333]/80 shadow-lg shadow-[#B87333]/10',
       cardBg: 'bg-gradient-to-b from-[#B87333]/10 via-surface to-surface dark:from-[#1a1310] dark:via-[#121218] dark:to-[#121218]',
       pedestalBg: 'bg-gradient-to-b from-[#B87333]/30 via-[#8C4A20]/15 to-transparent dark:from-[#B87333]/20 dark:to-transparent border-t border-[#8C4A20]/70',
       stepTextColor: 'text-[#8C4A20] dark:text-[#C47A3A]',
-      emphasisClass: '',
+      emphasisClass: 'md:-translate-y-1',
       icon: Medal,
       stepNumber: '3',
       scaleHover: 'hover:-translate-y-1',
@@ -138,14 +144,15 @@ function PodiumCard({ place, winner, project, basePath }) {
       <Link
         to={projectLink}
         state={{ from: `${basePath}/hall-of-fame`, project }}
+        aria-label={`${config.badgeLabel}: ${projectTitle}`}
         className={`group relative flex flex-col justify-between rounded-2xl p-6 transition-all duration-200 ${config.scaleHover} ${config.cardBorder} ${config.cardBg} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF5500]`}
       >
         {/* Top Badges */}
         <div className="flex items-center justify-between gap-2 mb-4">
           <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs tracking-wide border ${config.badgeBg} ${config.badgeBorder}`}
+            className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm tracking-wide border ${config.badgeBg} ${config.badgeBorder}`}
           >
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className="h-4 w-4" />
             {config.badgeLabel}
           </span>
           {groupCode && (
@@ -194,10 +201,13 @@ function PodiumCard({ place, winner, project, basePath }) {
 
       {/* Podium Pedestal Base */}
       <div
-        className={`hidden md:flex flex-col items-center justify-center rounded-b-xl ${config.pedestalBg} ${config.pedestalHeight} transition-all duration-300 mt-1 shadow-xs`}
+        className={`flex flex-col items-center justify-center rounded-b-xl ${config.pedestalBg} ${config.pedestalHeight} transition-all duration-300 mt-1 shadow-xs`}
       >
-        <span className={`font-bold text-2xl ${config.stepTextColor}`}>
+        <span className={`font-black leading-none ${config.rankTextSize} ${config.stepTextColor}`}>
           {config.stepNumber}
+        </span>
+        <span className={`mt-1 text-[9px] md:text-[10px] font-black tracking-[0.18em] ${config.stepTextColor}`}>
+          {config.pedestalLabel}
         </span>
       </div>
     </div>
@@ -222,31 +232,41 @@ function AwardCard({ winner, project, basePath }) {
     <Link
       to={projectLink}
       state={{ from: `${basePath}/hall-of-fame`, project }}
-      className="group relative flex flex-col justify-between rounded-2xl border border-line bg-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift hover:border-[#FF5500]/50 shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF5500]"
+      aria-label={`Award winner: ${projectTitle}`}
+      className="group relative flex min-h-[190px] w-full flex-col justify-between overflow-hidden rounded-2xl border border-amber-300/50 bg-gradient-to-br from-amber-100/45 via-[#FF5500]/5 to-surface p-5 shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-amber-400/70 hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF5500] dark:border-amber-400/25 dark:from-amber-400/10 dark:via-[#FF5500]/8"
     >
+      <div className="pointer-events-none absolute right-[-28px] top-[-28px] h-24 w-24 rounded-full border border-amber-300/30 bg-amber-300/10" aria-hidden="true" />
+      <div className="pointer-events-none absolute right-[-12px] top-[-12px] h-14 w-14 rounded-full border border-amber-400/30" aria-hidden="true" />
+      <div className="pointer-events-none absolute bottom-0 left-0 h-1 w-full bg-gradient-to-r from-amber-400/80 via-[#FF5500]/60 to-transparent" aria-hidden="true" />
+
       <div>
         {/* Award Title Badge & Group Code */}
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             {awardTitles.map((title) => (
-              <span key={title} className="inline-flex items-center gap-1.5 rounded-lg bg-[#FF5500]/10 px-2.5 py-1 text-xs font-bold text-[#FF5500] border border-[#FF5500]/30">
-                <Award className="h-3.5 w-3.5 text-[#FF5500] shrink-0" />
-                <span className="truncate max-w-[200px]">{title}</span>
+              <span key={title} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400/70 bg-gradient-to-r from-amber-300 to-amber-400 px-2.5 py-1.5 text-xs font-extrabold text-amber-950 shadow-sm shadow-amber-400/20">
+                <Trophy className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate max-w-[220px]">{title}</span>
               </span>
             ))}
           </div>
           {groupCode && (
-            <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded border border-line bg-surface text-muted">
+            <span className="rounded-lg border border-[#FF5500]/20 bg-surface/90 px-2.5 py-1 font-mono text-[11px] font-bold text-ink shadow-xs">
               {groupCode}
             </span>
           )}
         </div>
 
         {/* Project Logo & Title */}
-        <div className="flex items-start gap-3">
-          <ProjectLogoThumb logoUrl={logoUrl} title={projectTitle} size="md" />
+        <div className="flex items-start gap-3.5">
+          <div className="rounded-2xl ring-2 ring-[#FF5500]/15 ring-offset-2 ring-offset-surface">
+            <ProjectLogoThumb logoUrl={logoUrl} title={projectTitle} size="md" />
+          </div>
           <div className="min-w-0 flex-1">
-            <h4 className="font-bold text-sm sm:text-base text-ink leading-snug group-hover:text-[#FF5500] transition-colors line-clamp-2">
+            <span className="mb-1 block text-[10px] font-black uppercase tracking-[0.16em] text-[#FF5500]">
+              Award Winner
+            </span>
+            <h4 className="font-bold text-base sm:text-lg text-ink leading-snug group-hover:text-[#FF5500] transition-colors line-clamp-2">
               {projectTitle}
             </h4>
             {adviser && (
@@ -599,7 +619,7 @@ export default function HallOfFamePage() {
                       {name}
                     </h2>
                     <span className="ml-auto rounded-full bg-surface px-2.5 py-0.5 text-xs font-semibold text-muted border border-line">
-                      {category.total} {category.total === 1 ? 'recipient' : 'recipients'}
+                      {category.total} {category.total === 1 ? 'winner' : 'winners'}
                     </span>
                   </div>
 
@@ -651,14 +671,14 @@ export default function HallOfFamePage() {
                         className="mb-4 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted transition-colors hover:text-ink"
                       >
                         <ChevronRight className={`h-4 w-4 transition-transform ${isAwardsCollapsed ? '' : 'rotate-90'}`} />
-                        <span>Special Citations &amp; Category Recipients</span>
+                        <span>Award Winners</span>
                         <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px] normal-case tracking-normal">
                           {others.length}
                         </span>
                       </button>
                       <div
                         id={awardsPanelId}
-                        className={`${isAwardsCollapsed ? 'hidden' : 'grid grid-cols-1 gap-4 sm:gap-5'}`}
+                        className={`${isAwardsCollapsed ? 'hidden' : 'grid w-full grid-cols-1 gap-4'}`}
                       >
                         {others.map((winner, idx) => (
                           <AwardCard
